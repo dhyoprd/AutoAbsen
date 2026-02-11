@@ -1,0 +1,19 @@
+[project]
+name = "autoabsen"
+version = "2.0.0"
+requires-python = ">=3.9"
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "N", "S", "B", "A", "C4", "PT", "ERA", "RUF"]
+ignore = ["E501"]  # Line too long (handled by formatter mostly)
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

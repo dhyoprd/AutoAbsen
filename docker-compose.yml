@@ -1,0 +1,13 @@
+services:
+  autoabsen:
+    build: .
+    container_name: autoabsen_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - HEADLESS_MODE=true
+    volumes:
+      - ./logs:/app/logs
+    # Keep running for scheduled jobs (future) or just run once?
+    # For now, run once and exit

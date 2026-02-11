@@ -1,0 +1,44 @@
+name: Daily AutoAbsen
+
+on:
+  schedule:
+    # 4 PM UTC+8 (WITA/Singapore/Bali/Perth) -> 08:00 UTC
+    # Verify your timezone! If WIB (UTC+7), use 09:00 UTC. Assuming User meant +8 based on metadata.
+    - cron: '0 8 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # Hard limit slightly above script timeout
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pydantic-settings python-telegram-bot
+
+      - name: Run Interactive Runner
+        env:
+          MAGANGHUB_EMAIL: ${{ secrets.MAGANGHUB_EMAIL }}
+          MAGANGHUB_PASSWORD: ${{ secrets.MAGANGHUB_PASSWORD }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ALLOWED_TELEGRAM_ID: ${{ secrets.ALLOWED_TELEGRAM_ID }}
+          AKTIVITAS_KONTEKS: ${{ secrets.AKTIVITAS_KONTEKS || 'Mahasiswa Magang IT' }}
+          SHOW_BROWSER: false
+          HEADLESS_MODE: true
+        run: python src/workflow_runner.py
