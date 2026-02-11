@@ -153,4 +153,4 @@ MIT License - bebas digunakan dan dimodifikasi.
 
 ---
 
-Made with ❤️ for Maganghub interns
+Made by @dhyoprd
