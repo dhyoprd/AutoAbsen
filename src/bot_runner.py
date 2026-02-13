@@ -24,7 +24,10 @@ def main():
     logger.info("🤖 Starting AutoAbsen Telegram Bot...")
 
     # Dependency Injection
-    ai_provider = OpenRouterAI(api_key=config.openrouter_api_key)
+    ai_provider = OpenRouterAI(
+        api_key=config.openrouter_api_key,
+        model=config.ai_model,
+    )
     # For bot, we usually want headless=True
     is_headless = not config.show_browser
     automation_driver = SeleniumBaseDriver(headless=is_headless)

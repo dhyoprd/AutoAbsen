@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import ClassVar
 
 @dataclass
 class Report:
@@ -10,11 +10,13 @@ class Report:
     activity: str
     learning: str
     obstacles: str
+    MIN_FIELD_LENGTH: ClassVar[int] = 150
+    MAX_FIELD_LENGTH: ClassVar[int] = 300
     
     def validate(self) -> bool:
         """Basic validation to ensure content is sufficient."""
         return (
-            len(self.activity) >= 50 and 
-            len(self.learning) >= 50 and 
-            len(self.obstacles) >= 50
+            len(self.activity) >= self.MIN_FIELD_LENGTH and
+            len(self.learning) >= self.MIN_FIELD_LENGTH and
+            len(self.obstacles) >= self.MIN_FIELD_LENGTH
         )

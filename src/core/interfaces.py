@@ -17,19 +17,28 @@ class IAutomationDriver(ABC):
     Follows DIP: High-level services depend on this abstraction.
     """
     @abstractmethod
-    def login(self, email: str, password: str) -> bool: pass
+    def execute_full_flow(self, email: str, password: str, report: Report) -> bool:
+        pass
 
     @abstractmethod
-    def navigate_to_report_page(self) -> bool: pass
+    def login(self, email: str, password: str) -> bool:
+        pass
 
     @abstractmethod
-    def fill_report(self, report: Report) -> bool: pass
+    def navigate_to_report_page(self) -> bool:
+        pass
+
+    @abstractmethod
+    def fill_report(self, report: Report) -> bool:
+        pass
         
     @abstractmethod
-    def submit_report(self) -> bool: pass
+    def submit_report(self) -> bool:
+        pass
         
     @abstractmethod
-    def close(self): pass
+    def close(self):
+        pass
 
 class IInteractionHandler(ABC):
     """

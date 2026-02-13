@@ -30,7 +30,10 @@ class WorkflowBot:
         self.MAX_DURATION = 900  # 15 minutes timeout
         
         # Dependency Injection
-        self.ai = OpenRouterAI(api_key=config.openrouter_api_key)
+        self.ai = OpenRouterAI(
+            api_key=config.openrouter_api_key,
+            model=config.ai_model,
+        )
         self.service = None 
         # Delayed init for driver to save resources if no input
         
@@ -135,21 +138,12 @@ class WorkflowBot:
 
     def service_submit_wrapper(self, service, report):
         """Helper to call service submit directly since we already have the report object"""
-        # Note: ReportService.process_daily_report does BOTH generation and submission.
-        # We need a method in ReportService that just submits a pre-existing report.
-        # But for now, we can manually check the interfaces.
-        # Actually, let's just use the driver directly here for simplicity, 
-        # OR add a `submit_existing_report` to ReportService.
-        # Let's use the driver directly to adhere to the plan of "using existing components".
-        
-        try:
-            return service.driver.execute_full_flow(
-                config.maganghub_email,
-                config.maganghub_password,
-                report
-            )
-        finally:
-            service.driver.close()
+        # We only need submit here because draft is already generated.
+        return service.driver.execute_full_flow(
+            config.maganghub_email,
+            config.maganghub_password,
+            report
+        )
 
     async def run(self):
         """Main loop with timeout"""

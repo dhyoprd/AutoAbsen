@@ -1,6 +1,6 @@
 import json
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from src.core.interfaces import IContentGenerator
 from src.core.entities import Report
@@ -67,17 +67,17 @@ class OpenRouterAI(IContentGenerator):
         if clean_text.startswith("```json"):
             clean_text = clean_text.replace("```json", "").replace("```", "")
         elif clean_text.startswith("```"):
-             clean_text = clean_text.replace("```", "")
+            clean_text = clean_text.replace("```", "")
              
         return json.loads(clean_text)
 
     def _ensure_length(self, text: str, field_type: str) -> str:
-        if len(text) >= 100:
+        if len(text) >= Report.MIN_FIELD_LENGTH:
             return text
             
         # Extension logic
         try:
             prompt = PromptTemplate.extend_content_prompt(text, field_type)
             return self._call_api(prompt).strip()
-        except:
+        except Exception:
             return text  # Return original if extension fails

@@ -11,6 +11,13 @@ class MagangHubSelectors:
     USERNAME_INPUT = "#username"
     PASSWORD_INPUT = "#password"
     LOGIN_BUTTON = "button[type='submit']"
+    LOGIN_ERROR_TEXT = ".v-messages__message, .alert, .error, .invalid-feedback, .text-danger"
+
+    # Dashboard markers
+    DASHBOARD_MARKERS = (
+        "nav, .dashboard, .v-main, .v-app-bar, .v-navigation-drawer, "
+        ".v-toolbar, .v-date-picker, .calendar"
+    )
     
     # Dashboard / Calendar
     # Combining multiple potential selectors for robustness
@@ -24,4 +31,11 @@ class MagangHubSelectors:
     TEXTAREA = "textarea"
     CHECKBOX = "input[type='checkbox']"
     
-    SUBMIT_BUTTON = "//button[contains(text(), 'Simpan')] | //button[contains(text(), 'Kirim')] | //button[@type='submit']"
+    SUBMIT_BUTTON = (
+        "//div[contains(@class,'v-card-actions')]//button"
+        "[contains(normalize-space(.), 'Simpan') or "
+        "contains(normalize-space(.), 'Kirim') or "
+        "contains(normalize-space(.), 'Submit')]"
+        " | //button[contains(@class,'bg-black') and contains(@class,'v-btn')]"
+        " | //button[@type='submit']"
+    )

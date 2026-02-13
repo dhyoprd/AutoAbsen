@@ -25,7 +25,10 @@ def main():
 
     # Dependency Injection
     # We inject the concrete implementations here (Composition Root)
-    ai_provider = OpenRouterAI(api_key=config.openrouter_api_key)
+    ai_provider = OpenRouterAI(
+        api_key=config.openrouter_api_key,
+        model=config.ai_model,
+    )
     
     # Logic inversion: Show Browser = True -> Headless = False
     is_headless = not config.show_browser

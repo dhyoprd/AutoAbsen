@@ -1,5 +1,4 @@
 from src.core.interfaces import IContentGenerator, IAutomationDriver
-from src.core.entities import Report
 
 class ReportService:
     """
@@ -33,20 +32,7 @@ class ReportService:
 
         print("\n🚀 [2/2] Automating Submission...")
         try:
-            # Note: We are using the 'execute_full_flow' method we added to SeleniumBaseDriver
-            # In a stricter DIP implementation, we would use the interface methods stepwise.
-            # But since SB works best with a single context, we delegate the whole flow.
-            # If 'driver' is strictly IAutomationDriver, we might need to cast or ensure the method exists.
-            
-            success = False
-            if hasattr(self.driver, 'execute_full_flow'):
-                 success = self.driver.execute_full_flow(email, password, report)
-            else:
-                # Fallback to interface methods (if implemented separately)
-                if self.driver.login(email, password):
-                    if self.driver.navigate_to_report_page():
-                        if self.driver.fill_report(report):
-                            success = self.driver.submit_report()
+            success = self.driver.execute_full_flow(email, password, report)
             
             if success:
                 print("✅ Report Submitted Successfully!")

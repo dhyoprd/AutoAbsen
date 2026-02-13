@@ -1,25 +1,29 @@
-# 🚀 Deployment Guide: AutoAbsen 24/7
+# Deployment Guide
 
-To keep this bot running 24/7 without your laptop, you have 3 main options.
+## Mode yang didukung
+- `src/workflow_runner.py`: workflow Telegram short-lived (cocok untuk GitHub Actions schedule).
+- `src/bot_runner.py`: bot Telegram long-running (cocok untuk VPS/container selalu aktif).
 
-## Option 1: Cheap VPS (Recommended)
-Rent a small Linux server ($4-5/mo) like DigitalOcean Droplet, Linode, or Hetzner.
+## Opsi 1: GitHub Actions (Scheduled)
+Workflow siap pakai ada di `.github/workflows/daily_absen.yml`.
 
-1. **Install Docker**: `curl -fsSL https://get.docker.com | sh`
-2. **Clone Repo**: `git clone https://github.com/dhyoprd/AutoAbsen.git`
-3. **Setup .env**: Copy your .env content
-4. **Run**: `docker-compose up -d`
+1. Set repository secrets:
+`MAGANGHUB_EMAIL`, `MAGANGHUB_PASSWORD`, `OPENROUTER_API_KEY`,
+`TELEGRAM_BOT_TOKEN`, `ALLOWED_TELEGRAM_ID`, `AKTIVITAS_KONTEKS`.
+2. Sesuaikan cron timezone di `.github/workflows/daily_absen.yml`.
+3. Trigger manual via `workflow_dispatch` untuk test awal.
 
-## Option 2: GitHub Actions (Free, Scheduled Only)
-Only works for **scheduled** reports (e.g., every day at 8 AM), NOT for the Telegram Bot (since that needs to listen constantly).
+Catatan: runner ini bukan daemon 24/7; dia hanya hidup saat jadwal jalan.
 
-1. Create `.github/workflows/daily_report.yml`
-2. Add secrets to GitHub Repository Settings
-3. It will spin up a runner, execute the script, and die.
+## Opsi 2: VPS/Server Container (Long-running bot)
+1. Install Docker + Docker Compose.
+2. Copy project + `.env`.
+3. Jalankan `docker compose up -d`.
+4. Ubah command container jika ingin mode bot long-running:
+`python src/bot_runner.py`.
 
-## Option 3: Always-On Cloud Free Tiers
-- **Railway / Render**: Might suspend if inactive, but generally good for bots.
-- **Oracle Cloud**: Has a generous "Always Free" tier ARM instance.
-- **Fly.io**: Good for small apps.
-
-**Since we Dockerized it, Option 1 or 3 is easiest!**
+## Opsi 3: Menjalankan langsung di VM
+1. `pip install -r requirements.txt`
+2. Jalankan:
+- `python src/workflow_runner.py` (short-lived interactive workflow), atau
+- `python src/bot_runner.py` (long-running).

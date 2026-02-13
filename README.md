@@ -1,156 +1,86 @@
-# 🤖 AutoAbsen Maganghub + OpenRouter AI
+# AutoAbsen Maganghub + OpenRouter AI
 
-Otomatisasi pengisian laporan harian di [Maganghub Kemnaker](https://monev.maganghub.kemnaker.go.id) dengan bantuan **OpenRouter AI** untuk generate konten.
+Otomatisasi pembuatan dan pengisian laporan harian Maganghub dengan arsitektur berlapis (core/service/infrastructure).
 
-## ✨ Fitur
+## Fitur Utama
+- Generate konten laporan harian menggunakan OpenRouter AI.
+- Submit otomatis ke portal Maganghub menggunakan SeleniumBase.
+- Dukungan 3 mode eksekusi:
+`CLI manual`, `Telegram bot long-running`, `Telegram workflow short-lived` (cocok untuk scheduler CI).
+- Konfigurasi tervalidasi via `pydantic-settings`.
 
-- 🤖 **AI-Powered Content** - OpenRouter AI generate uraian aktivitas, pembelajaran, dan kendala
-- 🌐 **Auto Fill Form** - Selenium mengisi form laporan harian otomatis
-- ⏰ **Scheduler** - Jadwalkan absen otomatis setiap hari
-- 🔒 **Secure** - Kredensial disimpan di file .env (tidak di-commit ke git)
-
-## 📋 Persyaratan
-
-- Python 3.8+
-- Google Chrome browser
-- Akun Maganghub
-- API Key OpenRouter
-
-## 🚀 Instalasi
-
-### 1. Clone/Download Project
-
-```bash
-cd /path/to/AutoAbsen
+## Struktur Project
+```text
+src/
+├── core/                       # Entity + interface domain
+├── services/                   # Orkestrasi use case (ReportService)
+├── infrastructure/
+│   ├── ai/                     # Adapter OpenRouter
+│   ├── automation/             # Adapter SeleniumBase + selector
+│   └── telegram/               # Handler bot Telegram
+├── main.py                     # Entry CLI manual
+├── bot_runner.py               # Entry bot Telegram long-running
+└── workflow_runner.py          # Entry workflow Telegram short-lived (CI)
 ```
 
-### 2. Buat Virtual Environment (Opsional tapi Recommended)
+## Prasyarat
+- Python 3.9+
+- Google Chrome / Chromium
+- Akun Maganghub valid
+- API key OpenRouter
+- (Opsional) Telegram bot token untuk mode bot/workflow
 
+## Instalasi
 ```bash
-python -m venv venv
-source venv/bin/activate  # macOS/Linux
-# atau
-venv\Scripts\activate  # Windows
-```
-
-### 3. Install Dependencies
-
-```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 4. Konfigurasi Environment
-
-```bash
-# Copy file contoh
 cp .env.example .env
-
-# Edit file .env dengan text editor
-nano .env  # atau buka dengan VS Code
 ```
 
-Isi konfigurasi berikut:
-
+## Konfigurasi `.env`
+Minimal untuk mode CLI:
 ```env
-# Akun Maganghub
-MAGANGHUB_EMAIL=email_kamu@example.com
-MAGANGHUB_PASSWORD=password_kamu
-
-# OpenRouter API Key (dapatkan di https://openrouter.ai/keys)
-OPENROUTER_API_KEY=your_api_key_here
-
-# Konteks aktivitas magang (untuk AI)
-AKTIVITAS_KONTEKS=Saya mahasiswa magang di bidang IT, aktivitas meliputi coding, meeting, dll
-
-# Jadwal (format 24 jam)
-JADWAL_ABSEN=08:00
-
-# Mode browser (true/false)
+MAGANGHUB_EMAIL=your_email@example.com
+MAGANGHUB_PASSWORD=your_password
+OPENROUTER_API_KEY=sk-or-v1-...
+AI_MODEL=openai/gpt-4o-mini
+AKTIVITAS_KONTEKS=Deskripsi konteks magang
 SHOW_BROWSER=true
 ```
 
-### 5. Dapatkan OpenRouter API Key
+Tambahan untuk mode Telegram:
+```env
+TELEGRAM_BOT_TOKEN=123456:ABCDEF...
+ALLOWED_TELEGRAM_ID=123456789
+```
 
-1. Buka [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. Login dengan akun Google
-3. Klik "Create API Key"
-4. Copy API key dan paste ke file `.env`
+Kompatibilitas lama:
+- `HEADLESS_MODE=true` masih didukung; akan dipetakan menjadi `SHOW_BROWSER=false`.
 
-## 📖 Cara Penggunaan
-
-### Mode Manual (Recommended untuk pertama kali)
-
+## Cara Menjalankan
+Mode CLI manual:
 ```bash
-python main.py
+python src/main.py
 ```
 
-Langkah-langkah:
-1. Program akan bertanya "Apa yang kamu lakukan hari ini?"
-2. Jawab singkat aktivitasmu (contoh: "belajar python, meeting mentor")
-3. AI akan generate konten lengkap
-4. Review konten yang di-generate
-5. Konfirmasi untuk lanjut ke pengisian form
-6. Browser terbuka dan form diisi otomatis
-7. Review dan klik "Simpan dan Kirim" manual
-
-### Mode Scheduler (Auto harian)
-
+Mode Telegram bot long-running:
 ```bash
-python scheduler.py
+python src/bot_runner.py
 ```
 
-Program akan berjalan terus dan otomatis absen sesuai jadwal di `.env`.
-
-## 📁 Struktur Project
-
-```
-AutoAbsen/
-├── main.py           # Script utama
-├── gemini_ai.py      # Module OpenRouter AI
-├── automation.py     # Module Selenium automation
-├── scheduler.py      # Scheduler untuk auto harian
-├── requirements.txt  # Dependencies
-├── .env.example      # Contoh konfigurasi
-├── .env              # Konfigurasi (buat sendiri)
-└── README.md         # Dokumentasi ini
-```
-
-## ⚠️ Catatan Penting
-
-1. **Selector HTML** - Jika website Maganghub berubah, selector di `automation.py` mungkin perlu diupdate
-2. **Auto Submit** - Secara default, submit TIDAK otomatis. Uncomment baris `submit_laporan()` di `automation.py` jika ingin full auto
-3. **Captcha** - Jika ada captcha, perlu intervensi manual
-4. **Rate Limit** - OpenRouter API memiliki rate limit, jangan spam request
-
-## 🔧 Troubleshooting
-
-### Browser tidak terbuka
+Mode workflow short-lived (mis. dari GitHub Actions):
 ```bash
-# Install Chrome WebDriver manual jika perlu
-pip install webdriver-manager --upgrade
+python src/workflow_runner.py
 ```
 
-### Login gagal
-- Pastikan email dan password benar
-- Cek apakah ada 2FA/OTP
-- Coba login manual dulu untuk verifikasi
+## Deploy
+- Lihat `DEPLOYMENT.md` untuk detail deployment GitHub Actions, VPS, dan container.
+- Workflow schedule bawaan: `.github/workflows/daily_absen.yml`.
 
-### OpenRouter error
-- Cek API key valid
-- Pastikan quota API belum habis
-- Cek koneksi internet
+## Catatan Teknis
+- Jika UI Maganghub berubah, update selector di `src/infrastructure/automation/selectors.py`.
+- Validasi laporan domain memakai minimum panjang karakter terpusat di `src/core/entities.py`.
 
-### Selector tidak ditemukan
-Website mungkin update, perlu inspect element dan update selector di `automation.py`.
-
-## 📜 Disclaimer
-
-Tools ini dibuat untuk tujuan edukasi dan memudahkan proses absensi. Gunakan dengan bijak dan tetap isi laporan dengan jujur sesuai aktivitas yang benar-benar dilakukan.
-
-## 📝 License
-
-MIT License - bebas digunakan dan dimodifikasi.
-
----
-
-Made by @dhyoprd
+## Disclaimer
+Gunakan alat ini secara bertanggung jawab dan isi laporan sesuai aktivitas nyata.

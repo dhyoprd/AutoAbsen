@@ -1,8 +1,15 @@
 import logging
 import asyncio
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
-from src.core.interfaces import IInteractionHandler, IContentGenerator, IAutomationDriver
+from telegram.ext import (
+    ApplicationBuilder,
+    ApplicationHandlerStop,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
+from src.core.interfaces import IInteractionHandler
 from src.services.report_service import ReportService
 from src.config import config
 
@@ -43,9 +50,11 @@ class TelegramBotHandler(IInteractionHandler):
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_text = update.message.text
         user_id = update.effective_user.id
-        
-        # Security: Only allow specific users if needed (optional)
-        # if str(user_id) != config.allowed_telegram_id: return
+
+        # Security: restrict access when allowlist is configured.
+        if config.allowed_telegram_id and str(user_id) != config.allowed_telegram_id:
+            await update.message.reply_text("⛔ Unauthorized.")
+            raise ApplicationHandlerStop
 
         await update.message.reply_text("⏳ Processing your report... (This simulates browsing, might take 1-2 mins)")
         

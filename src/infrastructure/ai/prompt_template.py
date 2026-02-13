@@ -1,3 +1,6 @@
+from src.core.entities import Report
+
+
 class PromptTemplate:
     """
     Handles prompt generation for the AI.
@@ -16,7 +19,7 @@ Aktivitas hari ini:
 {daily_activity}
 
 Buatkan 3 bagian laporan harian dengan format JSON.
-Setiap bagian minimal 150 karakter, maksimal 300 karakter.
+Setiap bagian minimal {Report.MIN_FIELD_LENGTH} karakter, maksimal {Report.MAX_FIELD_LENGTH} karakter.
 Gunakan bahasa Indonesia yang profesional namun mengalir (seperti manusia).
 Jangan gunakan bullet points.
 
@@ -31,7 +34,8 @@ Format output (JSON murni):
     @staticmethod
     def extend_content_prompt(text: str, field_type: str) -> str:
         return f"""
-Kembangkan teks berikut menjadi minimal 150 karakter (maks 300) dengan bahasa profesional:
+Kembangkan teks berikut menjadi minimal {Report.MIN_FIELD_LENGTH} karakter
+(maks {Report.MAX_FIELD_LENGTH}) dengan bahasa profesional:
 
 Tipe: {field_type}
 Teks asli: {text}

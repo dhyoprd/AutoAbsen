@@ -1,5 +1,6 @@
-import time
-from typing import Optional
+import os
+from datetime import datetime
+
 from seleniumbase import SB
 
 from src.core.interfaces import IAutomationDriver
@@ -14,83 +15,125 @@ class SeleniumBaseDriver(IAutomationDriver):
     
     def __init__(self, headless: bool = False):
         self.headless = headless
-        self.sb_context = None
-        self.driver = None
+        self.sb = None
+        self._sb_context = None
 
-    def run_with_sb(self, action_callback):
-        """Helper to run code within SB context if not already running."""
-        # Note: SeleniumBase usually runs as a context manager.
-        # For this design pattern where we need persistent state across methods,
-        # we might need to structure it differently or re-initialize.
-        # However, for simplicity in this refactor, we'll use a single session method 
-        # that orchestrates the flow, OR we adapted the interface to be a context manager itself.
-        # To strictly follow the Interface which has separate methods, we'll need to instantiate SB 
-        # and keep the driver alive. SB's `Driver()` class is useful here.
-        pass
-
-    def execute_full_flow(self, email: str, password: str, report: Report):
-        """
-        Executes the full automation flow in a single SB context to ensure stability.
-        This is a deviation from strict granular interface methods for the sake of 
-        SeleniumBase's 'with SB()' pattern which is robust.
-        """
-        with SB(uc=True, headless=self.headless, test=True) as sb:
-            self.sb = sb  # Assign to self for helper methods to use
-            
-            # 1. Login
-            if not self._login(email, password):
-                return False
-                
-            # 2. Navigate to Form
-            if not self._navigate_to_today():
-                return False
-                
-            # 3. Fill Report
-            if not self._fill_form(report):
-                return False
-                
-            # 4. Submit
-            if not self._submit():
-                return False
-                
+    def _start_session(self) -> bool:
+        if self.sb is not None:
             return True
+
+        try:
+            self._sb_context = SB(uc=True, headless=self.headless, test=True)
+            self.sb = self._sb_context.__enter__()
+            return True
+        except Exception as e:
+            print(f"X Failed to start browser session: {e}")
+            self.sb = None
+            self._sb_context = None
+            return False
+
+    def _save_debug_artifacts(self, stage: str):
+        if not self.sb:
+            return
+
+        debug_dir = os.path.join("downloaded_files", "debug")
+        os.makedirs(debug_dir, exist_ok=True)
+        stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        base_name = f"{stamp}_{stage}"
+
+        try:
+            self.sb.save_screenshot(f"{base_name}.png", folder=debug_dir)
+        except Exception:
+            pass
+
+        try:
+            self.sb.save_page_source(f"{base_name}.html", folder=debug_dir)
+        except Exception:
+            pass
+
+        try:
+            meta_path = os.path.join(debug_dir, f"{base_name}.txt")
+            with open(meta_path, "w", encoding="utf-8") as f:
+                f.write(f"url={self.sb.get_current_url()}\n")
+                f.write(f"title={self.sb.get_title()}\n")
+        except Exception:
+            pass
+
+    def execute_full_flow(self, email: str, password: str, report: Report) -> bool:
+        """
+        Executes the full automation flow in one browser session.
+        """
+        if not self._start_session():
+            return False
+
+        try:
+            if not self.login(email, password):
+                return False
+            if not self.navigate_to_report_page():
+                return False
+            if not self.fill_report(report):
+                return False
+            return self.submit_report()
+        finally:
+            self.close()
 
     def _login(self, email: str, password: str) -> bool:
         try:
-            print("→ Opening Login Page...")
+            print("-> Opening Login Page...")
             self.sb.open(Sel.LOGIN_URL)
+            self.sb.wait_for_element_visible(Sel.USERNAME_INPUT, timeout=15)
+            self.sb.wait_for_element_visible(Sel.PASSWORD_INPUT, timeout=15)
             self.sb.type(Sel.USERNAME_INPUT, email)
             self.sb.type(Sel.PASSWORD_INPUT, password)
             self.sb.click(Sel.LOGIN_BUTTON)
-            
-            # Wait for dashboard
-            self.sb.wait_for_element_visible("nav, .dashboard, .v-main", timeout=15)
-            if "dashboard" in self.sb.get_current_url() or "monev" in self.sb.get_current_url():
-                print("✓ Login successful")
-                return True
+
+            # Wait for either successful redirect or visible dashboard marker.
+            for _ in range(20):
+                current_url = (self.sb.get_current_url() or "").lower()
+
+                if "/login" not in current_url and "monev.maganghub.kemnaker.go.id" in current_url:
+                    print(f"OK Login redirect detected: {current_url}")
+                    return True
+
+                if self.sb.is_element_visible(Sel.DASHBOARD_MARKERS):
+                    print("OK Dashboard marker found")
+                    return True
+
+                if self.sb.is_element_visible(Sel.LOGIN_ERROR_TEXT):
+                    err_text = self.sb.get_text(Sel.LOGIN_ERROR_TEXT)
+                    print(f"X Login rejected by server: {err_text}")
+                    self._save_debug_artifacts("login_rejected")
+                    return False
+
+                self.sb.sleep(1)
+
+            self._save_debug_artifacts("login_timeout")
+            print("X Login timeout: dashboard marker not found and URL stayed on login page")
             return False
         except Exception as e:
-            print(f"✗ Login failed: {e}")
+            print(f"X Login failed: {e}")
+            self._save_debug_artifacts("login_exception")
             return False
 
     def _navigate_to_today(self) -> bool:
         try:
-            print("→ Navigating to Today's Report...")
+            print("-> Navigating to Today's Report...")
             # Assuming we are on dashboard with calendar
             self.sb.wait_for_element_clickable(Sel.CALENDAR_TODAY_CELL, timeout=10)
             self.sb.click(Sel.CALENDAR_TODAY_CELL)
             
             # Wait for dialog
             self.sb.wait_for_element_visible(Sel.DIALOG_CONTAINER, timeout=5)
-            print("✓ Report dialog opened")
+            print("OK Report dialog opened")
             return True
         except Exception as e:
-            print(f"✗ Failed to open report dialog: {e}")
+            print(f"X Failed to open report dialog: {e}")
+            self._save_debug_artifacts("navigate_exception")
             return False
 
     def _fill_form(self, report: Report) -> bool:
         try:
-            print("→ Filling Report Form...")
+            print("-> Filling Report Form...")
             # Fill textareas
             textareas = self.sb.find_elements(Sel.TEXTAREA)
             if len(textareas) >= 3:
@@ -98,40 +141,91 @@ class SeleniumBaseDriver(IAutomationDriver):
                 textareas[1].send_keys(report.learning)
                 textareas[2].send_keys(report.obstacles)
             else:
-                print("⚠ Not enough textareas found!")
+                print("! Not enough textareas found!")
                 return False
             
             # Checkbox
             # SB's click is robust, tries to scroll into view
             self.sb.click(Sel.CHECKBOX)
             
-            print("✓ Form filled")
+            print("OK Form filled")
             return True
         except Exception as e:
-            print(f"✗ Failed to fill form: {e}")
+            print(f"X Failed to fill form: {e}")
+            self._save_debug_artifacts("fill_exception")
             return False
 
     def _submit(self) -> bool:
         try:
-            print("→ Submitting Report...")
-            self.sb.click(Sel.SUBMIT_BUTTON)
-            self.sb.sleep(3) # Wait for network
-            
-            # Validation: check if dialog closed
-            if self.sb.is_element_not_visible(Sel.DIALOG_CONTAINER):
-                print("✓ Report submitted successfully")
-                return True
-            else:
-                print("⚠ Dialog still visible, submit might have failed")
+            print("-> Submitting Report...")
+            clicked = False
+            buttons = self.sb.find_elements("button")
+
+            for button in buttons:
+                button_text = (button.text or "").strip().lower()
+                button_class = (button.get_attribute("class") or "").lower()
+
+                if (
+                    "simpan" in button_text
+                    or "kirim" in button_text
+                    or "submit" in button_text
+                    or "bg-black" in button_class
+                ):
+                    try:
+                        button.click()
+                    except Exception:
+                        self.sb.driver.execute_script(
+                            "arguments[0].scrollIntoView({block: 'center'});", button
+                        )
+                        self.sb.driver.execute_script("arguments[0].click();", button)
+                    clicked = True
+                    break
+
+            if not clicked:
+                print("! Submit button was not detected in visible button elements")
+                self._save_debug_artifacts("submit_button_not_found")
                 return False
+
+            # Validation: dialog should close after submit.
+            for _ in range(10):
+                if not self.sb.is_element_visible(Sel.DIALOG_CONTAINER):
+                    print("OK Report submitted successfully")
+                    return True
+                self.sb.sleep(1)
+
+            print("! Dialog still visible, submit might have failed")
+            self._save_debug_artifacts("submit_not_closed")
+            return False
         except Exception as e:
-            print(f"✗ Failed to submit: {e}")
+            print(f"X Failed to submit: {e}")
+            self._save_debug_artifacts("submit_exception")
             return False
 
-    # Interface methods (Adapter pattern to fit the monolithic execution if needed)
-    # For now, we mainly expose `execute_full_flow` which is more pythonic for SeleniumBase
-    def login(self, email, password): pass 
-    def navigate_to_report_page(self): pass
-    def fill_report(self, report): pass
-    def submit_report(self): pass
-    def close(self): pass
+    def login(self, email: str, password: str) -> bool:
+        if not self._start_session():
+            return False
+        return self._login(email, password)
+
+    def navigate_to_report_page(self) -> bool:
+        if not self.sb:
+            return False
+        return self._navigate_to_today()
+
+    def fill_report(self, report: Report) -> bool:
+        if not self.sb:
+            return False
+        return self._fill_form(report)
+
+    def submit_report(self) -> bool:
+        if not self.sb:
+            return False
+        return self._submit()
+
+    def close(self):
+        if self._sb_context is None:
+            return
+        try:
+            self._sb_context.__exit__(None, None, None)
+        finally:
+            self._sb_context = None
+            self.sb = None
