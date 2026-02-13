@@ -45,3 +45,6 @@ Thumbs.db
 # Chrome Driver
 chromedriver
 chromedriver.exe
+
+# Runtime artifacts
+downloaded_files/
