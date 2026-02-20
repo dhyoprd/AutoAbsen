@@ -41,6 +41,7 @@ class WorkflowBot:
         self.state = "WAITING_FOR_INPUT" # -> WAITING_CONFIRM -> DONE
         self.draft_report = None
         self.draft_context = None
+        self.submission_success = None  # None=not decided, True=submitted, False=failed/cancelled/timeout
 
     async def notify_user(self):
         """Send initial ping"""
@@ -54,6 +55,7 @@ class WorkflowBot:
             logger.info(f"Notification sent to {config.allowed_telegram_id}")
         except Exception as e:
             logger.error(f"Failed to send notification: {e}")
+            self.submission_success = False
             self.interaction_complete = True # Exit if we can't notify
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -120,16 +122,20 @@ class WorkflowBot:
                     
                     if success:
                         await update.message.reply_text("🎉 Report Submitted Successfully!")
+                        self.submission_success = True
                     else:
                         await update.message.reply_text("❌ Submission Failed. Check GitHub Actions logs.")
-                        
+                        self.submission_success = False
+
                 except Exception as e:
                     await update.message.reply_text(f"❌ Automation Error: {e}")
-                
+                    self.submission_success = False
+
                 self.interaction_complete = True
                 
             elif text.upper().strip() == "CANCEL":
                 await update.message.reply_text("🚫 Operation cancelled.")
+                self.submission_success = False
                 self.interaction_complete = True
             else:
                 # Treat as new input -> Regenerate
@@ -155,6 +161,7 @@ class WorkflowBot:
         while not self.interaction_complete:
             if time.time() - self.start_time > self.MAX_DURATION:
                 logger.warning("Timeout reached. Exiting.")
+                self.submission_success = False
                 try:
                     await self.app.bot.send_message(
                         chat_id=config.allowed_telegram_id,
@@ -169,17 +176,21 @@ class WorkflowBot:
         await self.app.stop()
         await self.app.shutdown()
 
-async def main_async():
+        return self.submission_success is True
+
+async def main_async() -> bool:
     setup_logger()
     if not config.telegram_bot_token or not config.allowed_telegram_id:
         logger.error("Missing Telegram Config")
-        return
-        
+        return False
+
     bot = WorkflowBot()
-    await bot.run()
+    return await bot.run()
 
 def main():
-    asyncio.run(main_async())
+    success = asyncio.run(main_async())
+    if not success:
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()
