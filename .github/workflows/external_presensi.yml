@@ -98,3 +98,11 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ALLOWED_TELEGRAM_ID: ${{ secrets.ALLOWED_TELEGRAM_ID }}
         run: python src/external_presensi_runner.py
+
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: presensi-debug-${{ github.run_id }}
+          path: downloaded_files/debug/**
+          if-no-files-found: ignore

@@ -2,6 +2,7 @@ import os
 import time
 from datetime import datetime
 from typing import Tuple
+from urllib.parse import urlparse
 
 from selenium.common.exceptions import NoAlertPresentException
 from seleniumbase import SB
@@ -60,6 +61,17 @@ class PresensiDriver:
                 file.write(f"title={self.sb.get_title()}\n")
         except Exception:
             pass
+
+    def _is_google_login_redirect(self) -> bool:
+        if not self.sb:
+            return False
+
+        try:
+            current_url = (self.sb.get_current_url() or "").lower()
+            host = (urlparse(current_url).hostname or "").lower()
+            return "accounts.google.com" in host or "signin" in current_url
+        except Exception:
+            return False
 
     def _consume_alert_text(self) -> str:
         if not self.sb:
@@ -126,6 +138,11 @@ class PresensiDriver:
         try:
             print("-> Opening external presensi page...")
             self.sb.open(url)
+            self.sb.sleep(2)
+
+            if self._is_google_login_redirect():
+                self._save_debug_artifacts("auth_redirect")
+                return False, "Auth redirect detected (Google sign-in required). Endpoint is not CI-accessible."
 
             self.sb.wait_for_element_visible(Sel.NAME_INPUT, timeout=20)
             self.sb.wait_for_element_visible(Sel.UNIT_SELECT, timeout=20)
@@ -148,6 +165,10 @@ class PresensiDriver:
             print(f"❌ Presensi {normalized_action} failed. {message}")
             return False, message
         except Exception as error:
+            if self._is_google_login_redirect():
+                self._save_debug_artifacts("auth_redirect_exception")
+                return False, "Auth redirect detected while waiting form fields (Google sign-in required)."
+
             self._save_debug_artifacts("exception")
             return False, f"Automation exception: {error}"
         finally:
