@@ -144,9 +144,20 @@ class SeleniumBaseDriver(IAutomationDriver):
                 print("! Not enough textareas found!")
                 return False
             
-            # Checkbox
-            # SB's click is robust, tries to scroll into view
-            self.sb.click(Sel.CHECKBOX)
+            # Checkbox must be checked before submit button becomes enabled.
+            checkbox = self.sb.find_element(Sel.CHECKBOX, timeout=10)
+            if not checkbox.is_selected():
+                try:
+                    self.sb.click(Sel.CONFIRM_CHECKBOX_LABEL)
+                except Exception:
+                    # Fallback: click the input directly.
+                    self.sb.click(Sel.CHECKBOX)
+
+                checkbox = self.sb.find_element(Sel.CHECKBOX, timeout=5)
+                if not checkbox.is_selected():
+                    print("! Confirmation checkbox is still unchecked after click")
+                    self._save_debug_artifacts("checkbox_not_checked")
+                    return False
             
             print("OK Form filled")
             return True
@@ -158,33 +169,44 @@ class SeleniumBaseDriver(IAutomationDriver):
     def _submit(self) -> bool:
         try:
             print("-> Submitting Report...")
-            clicked = False
-            buttons = self.sb.find_elements("button")
+            submit_button = None
 
-            for button in buttons:
-                button_text = (button.text or "").strip().lower()
-                button_class = (button.get_attribute("class") or "").lower()
+            # Wait until candidate submit button is enabled.
+            for _ in range(10):
+                buttons = self.sb.find_elements("button")
+                for button in buttons:
+                    button_text = (button.text or "").strip().lower()
+                    button_class = (button.get_attribute("class") or "").lower()
+                    is_candidate = (
+                        "simpan" in button_text
+                        or "kirim" in button_text
+                        or "submit" in button_text
+                        or "bg-black" in button_class
+                    )
+                    is_disabled = (
+                        button.get_attribute("disabled") is not None
+                        or "v-btn--disabled" in button_class
+                    )
+                    if is_candidate and not is_disabled:
+                        submit_button = button
+                        break
 
-                if (
-                    "simpan" in button_text
-                    or "kirim" in button_text
-                    or "submit" in button_text
-                    or "bg-black" in button_class
-                ):
-                    try:
-                        button.click()
-                    except Exception:
-                        self.sb.driver.execute_script(
-                            "arguments[0].scrollIntoView({block: 'center'});", button
-                        )
-                        self.sb.driver.execute_script("arguments[0].click();", button)
-                    clicked = True
+                if submit_button is not None:
                     break
+                self.sb.sleep(1)
 
-            if not clicked:
-                print("! Submit button was not detected in visible button elements")
+            if submit_button is None:
+                print("! Submit button candidate not found in enabled state")
                 self._save_debug_artifacts("submit_button_not_found")
                 return False
+
+            try:
+                submit_button.click()
+            except Exception:
+                self.sb.driver.execute_script(
+                    "arguments[0].scrollIntoView({block: 'center'});", submit_button
+                )
+                self.sb.driver.execute_script("arguments[0].click();", submit_button)
 
             # Validation: dialog should close after submit.
             for _ in range(10):

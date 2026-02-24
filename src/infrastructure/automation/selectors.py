@@ -30,6 +30,10 @@ class MagangHubSelectors:
     
     TEXTAREA = "textarea"
     CHECKBOX = "input[type='checkbox']"
+    CONFIRM_CHECKBOX_LABEL = (
+        "//label[contains(normalize-space(.), "
+        "'Saya menyatakan telah meninjau dan memastikan isian laporan ini sudah benar')]"
+    )
     
     SUBMIT_BUTTON = (
         "//div[contains(@class,'v-card-actions')]//button"
