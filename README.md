@@ -7,6 +7,7 @@ Otomatisasi pembuatan dan pengisian laporan harian Maganghub dengan arsitektur b
 - Submit otomatis ke portal Maganghub menggunakan SeleniumBase.
 - Dukungan 3 mode eksekusi:
 `CLI manual`, `Telegram bot long-running`, `Telegram workflow short-lived` (cocok untuk scheduler CI).
+- Dukungan automasi presensi eksternal terpisah (isi form + klik tombol) tanpa trigger user.
 - Konfigurasi tervalidasi via `pydantic-settings`.
 
 ## Struktur Project
@@ -17,10 +18,12 @@ src/
 ├── infrastructure/
 │   ├── ai/                     # Adapter OpenRouter
 │   ├── automation/             # Adapter SeleniumBase + selector
+│   ├── integrations/           # Adapter integrasi eksternal (mis. notifier Telegram)
 │   └── telegram/               # Handler bot Telegram
 ├── main.py                     # Entry CLI manual
 ├── bot_runner.py               # Entry bot Telegram long-running
-└── workflow_runner.py          # Entry workflow Telegram short-lived (CI)
+├── workflow_runner.py          # Entry workflow Telegram short-lived (CI)
+└── external_presensi_runner.py # Entry presensi eksternal terpisah
 ```
 
 ## Prasyarat
@@ -55,6 +58,16 @@ TELEGRAM_BOT_TOKEN=123456:ABCDEF...
 ALLOWED_TELEGRAM_ID=123456789
 ```
 
+Tambahan untuk automasi presensi eksternal terpisah:
+```env
+PRESENSI_ENABLED=true
+PRESENSI_URL=https://script.google.com/macros/s/.../exec
+PRESENSI_FULL_NAME=Made Dhyo Pradnyadiva
+PRESENSI_UNIT=Pengembangan Aplikasi
+PRESENSI_ACTION=MASUK
+PRESENSI_SHOW_BROWSER=false
+```
+
 Kompatibilitas lama:
 - `HEADLESS_MODE=true` masih didukung; akan dipetakan menjadi `SHOW_BROWSER=false`.
 
@@ -74,9 +87,18 @@ Mode workflow short-lived (mis. dari GitHub Actions):
 python src/workflow_runner.py
 ```
 
+Mode presensi eksternal terpisah (manual trigger):
+```bash
+python src/external_presensi_runner.py
+```
+
 ## Deploy
 - Lihat `DEPLOYMENT.md` untuk detail deployment GitHub Actions, VPS, dan container.
 - Workflow schedule bawaan: `.github/workflows/daily_absen.yml`.
+- Workflow presensi eksternal terpisah: `.github/workflows/external_presensi.yml`.
+  Workflow ini dijadwalkan otomatis:
+  1) 06:15 WITA untuk aksi `MASUK` (cron UTC: `15 22 * * *`)
+  2) 16:00 WITA untuk aksi `KELUAR` (cron UTC: `0 8 * * *`)
 
 ## Catatan Teknis
 - Jika UI Maganghub berubah, update selector di `src/infrastructure/automation/selectors.py`.

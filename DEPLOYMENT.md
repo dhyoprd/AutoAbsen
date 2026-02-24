@@ -15,6 +15,14 @@ Workflow siap pakai ada di `.github/workflows/daily_absen.yml`.
 
 Catatan: runner ini bukan daemon 24/7; dia hanya hidup saat jadwal jalan.
 
+Untuk flow presensi eksternal (terpisah dari Maganghub), gunakan
+`.github/workflows/external_presensi.yml`.
+- Jadwal otomatis:
+1. `15 22 * * *` UTC -> 06:15 WITA (aksi `MASUK`)
+2. `0 8 * * *` UTC -> 16:00 WITA (aksi `KELUAR`)
+- Secret opsional: `PRESENSI_URL`, `PRESENSI_FULL_NAME`, `PRESENSI_UNIT`, `PRESENSI_ENABLED`
+- Secret wajib untuk notifikasi: `TELEGRAM_BOT_TOKEN`, `ALLOWED_TELEGRAM_ID`
+
 ## Opsi 2: VPS/Server Container (Long-running bot)
 1. Install Docker + Docker Compose.
 2. Copy project + `.env`.
