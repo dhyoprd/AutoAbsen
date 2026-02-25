@@ -1,4 +1,5 @@
 import os
+import traceback
 from datetime import datetime
 
 from seleniumbase import SB
@@ -134,35 +135,63 @@ class SeleniumBaseDriver(IAutomationDriver):
     def _fill_form(self, report: Report) -> bool:
         try:
             print("-> Filling Report Form...")
-            # Fill textareas
+
+            self.sb.wait_for_element_visible(Sel.TEXTAREA, timeout=10)
             textareas = self.sb.find_elements(Sel.TEXTAREA)
-            if len(textareas) >= 3:
-                textareas[0].send_keys(report.activity)
-                textareas[1].send_keys(report.learning)
-                textareas[2].send_keys(report.obstacles)
-            else:
-                print("! Not enough textareas found!")
+            visible_textareas = [
+                element
+                for element in textareas
+                if getattr(element, "is_displayed", lambda: False)() and getattr(element, "is_enabled", lambda: False)()
+            ]
+
+            if len(visible_textareas) < 3:
+                print(f"! Not enough visible textareas found! got={len(visible_textareas)} total={len(textareas)}")
+                self._save_debug_artifacts("textareas_not_enough")
                 return False
-            
+
+            field_values = [report.activity, report.learning, report.obstacles]
+            for index, value in enumerate(field_values):
+                area = visible_textareas[index]
+                self.sb.driver.execute_script(
+                    """
+                    arguments[0].focus();
+                    arguments[0].value = '';
+                    arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                    arguments[0].value = arguments[1];
+                    arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                    arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+                    """,
+                    area,
+                    value,
+                )
+
             # Checkbox must be checked before submit button becomes enabled.
-            checkbox = self.sb.find_element(Sel.CHECKBOX, timeout=10)
-            if not checkbox.is_selected():
+            self.sb.wait_for_element_visible(Sel.CHECKBOX, timeout=10)
+            is_checked = self.sb.driver.execute_script(
+                "const el=document.querySelector(arguments[0]); return !!(el && el.checked);",
+                Sel.CHECKBOX,
+            )
+
+            if not is_checked:
                 try:
                     self.sb.click(Sel.CONFIRM_CHECKBOX_LABEL)
                 except Exception:
-                    # Fallback: click the input directly.
                     self.sb.click(Sel.CHECKBOX)
 
-                checkbox = self.sb.find_element(Sel.CHECKBOX, timeout=5)
-                if not checkbox.is_selected():
+                is_checked = self.sb.driver.execute_script(
+                    "const el=document.querySelector(arguments[0]); return !!(el && el.checked);",
+                    Sel.CHECKBOX,
+                )
+                if not is_checked:
                     print("! Confirmation checkbox is still unchecked after click")
                     self._save_debug_artifacts("checkbox_not_checked")
                     return False
-            
+
             print("OK Form filled")
             return True
         except Exception as e:
             print(f"X Failed to fill form: {e}")
+            print(traceback.format_exc())
             self._save_debug_artifacts("fill_exception")
             return False
 
