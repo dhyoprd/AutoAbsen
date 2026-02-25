@@ -19,18 +19,41 @@ class SeleniumBaseDriver(IAutomationDriver):
         self.sb = None
         self._sb_context = None
 
+        # UC mode can be unstable on some CI runners. Default to non-UC on GitHub Actions,
+        # but allow override via env AUTOABSEN_USE_UC=true/false.
+        ci_default_uc = os.getenv("GITHUB_ACTIONS", "false").lower() != "true"
+        env_uc = os.getenv("AUTOABSEN_USE_UC")
+        if env_uc is None:
+            self.use_uc = ci_default_uc
+        else:
+            self.use_uc = env_uc.strip().lower() in {"1", "true", "yes", "on"}
+
     def _start_session(self) -> bool:
         if self.sb is not None:
             return True
 
         try:
-            self._sb_context = SB(uc=True, headless=self.headless, test=True)
+            self._sb_context = SB(uc=self.use_uc, headless=self.headless, test=True)
             self.sb = self._sb_context.__enter__()
+            print(f"-> Browser session started (uc={self.use_uc}, headless={self.headless})")
             return True
         except Exception as e:
-            print(f"X Failed to start browser session: {e}")
+            print(f"X Failed to start browser session (uc={self.use_uc}): {e}")
             self.sb = None
             self._sb_context = None
+
+            # Fallback once with non-UC mode for CI stability
+            if self.use_uc:
+                try:
+                    self._sb_context = SB(uc=False, headless=self.headless, test=True)
+                    self.sb = self._sb_context.__enter__()
+                    self.use_uc = False
+                    print("-> Browser session recovered with fallback (uc=False)")
+                    return True
+                except Exception as fallback_error:
+                    print(f"X Fallback browser session also failed: {fallback_error}")
+                    self.sb = None
+                    self._sb_context = None
             return False
 
     def _save_debug_artifacts(self, stage: str):

@@ -10,6 +10,9 @@ jobs:
   report:
     runs-on: ubuntu-latest
     timeout-minutes: 20 # Hard limit slightly above script timeout
+    concurrency:
+      group: daily-autoabsen-main
+      cancel-in-progress: false
     
     steps:
       - name: Checkout Code
@@ -68,4 +71,5 @@ jobs:
           AKTIVITAS_KONTEKS: ${{ secrets.AKTIVITAS_KONTEKS || 'Mahasiswa Magang IT' }}
           SHOW_BROWSER: false
           HEADLESS_MODE: true
+          AUTOABSEN_USE_UC: false
         run: python src/workflow_runner.py
