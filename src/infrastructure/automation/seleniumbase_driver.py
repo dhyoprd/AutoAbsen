@@ -195,22 +195,49 @@ class SeleniumBaseDriver(IAutomationDriver):
                     value,
                 )
 
-            # Checkbox must be checked before submit button becomes enabled.
-            self.sb.wait_for_element_visible(Sel.CHECKBOX, timeout=10)
+            # Checkbox can be hidden in Vuetify; try label click first, then fallback to input.
             is_checked = self.sb.driver.execute_script(
-                "const el=document.querySelector(arguments[0]); return !!(el && el.checked);",
-                Sel.CHECKBOX,
+                """
+                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                const checks = Array.from(dialog.querySelectorAll('input[type="checkbox"]'));
+                return checks.some((c) => c.checked);
+                """
             )
 
             if not is_checked:
-                try:
-                    self.sb.click(Sel.CONFIRM_CHECKBOX_LABEL)
-                except Exception:
-                    self.sb.click(Sel.CHECKBOX)
+                label_clicked = False
+                label_strategies = [
+                    Sel.CONFIRM_CHECKBOX_LABEL,
+                    "//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'meninjau')]",
+                    "//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'laporan')]",
+                ]
+                for selector in label_strategies:
+                    try:
+                        self.sb.click(selector)
+                        label_clicked = True
+                        break
+                    except Exception:
+                        continue
+
+                if not label_clicked:
+                    try:
+                        # fallback: click any checkbox in active dialog via JS
+                        self.sb.driver.execute_script(
+                            """
+                            const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                            const cb = dialog.querySelector('input[type="checkbox"]');
+                            if (cb) { cb.click(); }
+                            """
+                        )
+                    except Exception:
+                        pass
 
                 is_checked = self.sb.driver.execute_script(
-                    "const el=document.querySelector(arguments[0]); return !!(el && el.checked);",
-                    Sel.CHECKBOX,
+                    """
+                    const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                    const checks = Array.from(dialog.querySelectorAll('input[type="checkbox"]'));
+                    return checks.length === 0 ? true : checks.some((c) => c.checked);
+                    """
                 )
                 if not is_checked:
                     print("! Confirmation checkbox is still unchecked after click")
