@@ -138,13 +138,18 @@ class SeleniumBaseDriver(IAutomationDriver):
 
             self.sb.wait_for_element_visible(Sel.TEXTAREA, timeout=10)
             textareas = self.sb.find_elements(Sel.TEXTAREA)
-            visible_textareas = []
-            for element in textareas:
-                try:
-                    if element.is_displayed() and element.is_enabled():
-                        visible_textareas.append(element)
-                except Exception:
-                    continue
+            visible_textareas = self.sb.driver.execute_script(
+                """
+                const all = Array.from(document.querySelectorAll('textarea'));
+                return all.filter((el) => {
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    const visible = rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+                    const inActiveOverlay = !!el.closest('.v-overlay--active, .v-dialog--active, [role="dialog"]');
+                    return visible && inActiveOverlay;
+                });
+                """
+            )
 
             if len(visible_textareas) < 3:
                 print(f"! Not enough visible textareas found! got={len(visible_textareas)} total={len(textareas)}")
