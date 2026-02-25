@@ -138,11 +138,13 @@ class SeleniumBaseDriver(IAutomationDriver):
 
             self.sb.wait_for_element_visible(Sel.TEXTAREA, timeout=10)
             textareas = self.sb.find_elements(Sel.TEXTAREA)
-            visible_textareas = [
-                element
-                for element in textareas
-                if getattr(element, "is_displayed", lambda: False)() and getattr(element, "is_enabled", lambda: False)()
-            ]
+            visible_textareas = []
+            for element in textareas:
+                try:
+                    if element.is_displayed() and element.is_enabled():
+                        visible_textareas.append(element)
+                except Exception:
+                    continue
 
             if len(visible_textareas) < 3:
                 print(f"! Not enough visible textareas found! got={len(visible_textareas)} total={len(textareas)}")
