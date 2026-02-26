@@ -123,6 +123,10 @@ Gunakan kode ini untuk cepat identifikasi titik gagal di GitHub Actions log:
 | `MH-FILL-LEN-RETRY` | Panjang field belum valid setelah fill pertama, bot mencoba isi ulang via `send_keys`. |
 | `MH-FILL-ERR-LEN` | Setelah diisi, panjang field masih di bawah minimal UI (100 karakter). |
 | `MH-FILL-ERR-CHECKBOX` | Checkbox konfirmasi tidak berhasil dicentang. |
+| `MH-FILL-SUBMIT-LOCKED` | Setelah fill + checkbox, tombol submit masih disabled (indikasi ada field required lain). |
+| `MH-FILL-ATTENDANCE` | Hasil deteksi/penyetelan field kehadiran ke nilai `Hadir`. |
+| `MH-FILL-ATTENDANCE-OK` | Field kehadiran terkonfirmasi `Hadir`. |
+| `MH-FILL-ATTENDANCE-WARN` | Bot belum bisa konfirmasi field kehadiran `Hadir` sebelum submit phase. |
 | `MH-SUBMIT-WAIT` | Kandidat tombol submit belum siap (masih disabled) atau belum terdeteksi di dialog aktif. |
 | `MH-SUBMIT-ERR-BUTTON` | Tombol submit tidak ditemukan dalam kondisi enabled. |
 | `MH-SUBMIT-ERR-CHECKBOX` | Submit diblokir karena checkbox konfirmasi masih unchecked. |

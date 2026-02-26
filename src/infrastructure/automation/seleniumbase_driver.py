@@ -116,7 +116,17 @@ class SeleniumBaseDriver(IAutomationDriver):
 
                     const forId = label.getAttribute('for') || '';
                     if (forId) {
-                        const byId = document.getElementById(forId);
+                        let byId = null;
+                        try {
+                            const escaped = (window.CSS && CSS.escape) ? CSS.escape(forId) : forId;
+                            byId = dialog.querySelector(`#${escaped}`);
+                        } catch (e) {}
+                        if (!byId) {
+                            const byDoc = document.getElementById(forId);
+                            if (byDoc && dialog.contains(byDoc)) {
+                                byId = byDoc;
+                            }
+                        }
                         if (byId && byId.type === 'checkbox') {
                             return {found: true, checked: !!byId.checked, forId, source: 'label-for'};
                         }
@@ -157,6 +167,70 @@ class SeleniumBaseDriver(IAutomationDriver):
         if not self.sb:
             return False
 
+        try:
+            result = self.sb.driver.execute_script(
+                """
+                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                const labels = Array.from(dialog.querySelectorAll('label'));
+                const targetLabel = labels.find((label) => {
+                    const value = normalize(label.textContent);
+                    return value.includes('meninjau') || value.includes('laporan ini sudah benar');
+                });
+
+                let input = null;
+                if (targetLabel) {
+                    const forId = targetLabel.getAttribute('for');
+                    if (forId) {
+                        try {
+                            const escaped = (window.CSS && CSS.escape) ? CSS.escape(forId) : forId;
+                            input = dialog.querySelector(`#${escaped}`);
+                        } catch (e) {}
+                        if (!input) {
+                            const byDoc = document.getElementById(forId);
+                            if (byDoc && dialog.contains(byDoc)) {
+                                input = byDoc;
+                            }
+                        }
+                    }
+                    if (!input) {
+                        input = (targetLabel.parentElement || dialog).querySelector('input[type="checkbox"]');
+                    }
+                }
+                if (!input) {
+                    const all = Array.from(dialog.querySelectorAll('input[type="checkbox"]'));
+                    if (all.length === 1) {
+                        input = all[0];
+                    }
+                }
+                if (!input) return false;
+
+                const wrapper =
+                    input.closest('.v-selection-control')?.querySelector('.v-selection-control__wrapper') ||
+                    input.closest('.v-input')?.querySelector('.v-selection-control__wrapper');
+                const clickTargets = [targetLabel, wrapper, input].filter(Boolean);
+
+                for (const target of clickTargets) {
+                    if (input.checked) break;
+                    target.click();
+                }
+                if (!input.checked) {
+                    input.checked = true;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                return !!input.checked;
+                """
+            )
+            if result:
+                state = self._get_confirm_checkbox_state()
+                if state.get("checked"):
+                    self._log("MH-FILL-CHECKBOX-OK", f"Checkbox checked via active-dialog JS strategy ({state.get('source')}).")
+                    return True
+        except Exception:
+            pass
+
         label_strategies = [
             Sel.CONFIRM_CHECKBOX_LABEL,
             "//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'meninjau')]",
@@ -172,57 +246,6 @@ class SeleniumBaseDriver(IAutomationDriver):
             if state.get("checked"):
                 self._log("MH-FILL-CHECKBOX-OK", f"Checkbox checked via selector strategy ({state.get('source')}).")
                 return True
-
-        try:
-            self.sb.driver.execute_script(
-                """
-                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
-                const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
-                const labels = Array.from(dialog.querySelectorAll('label'));
-                const targetLabel = labels.find((label) => {
-                    const value = normalize(label.textContent);
-                    return value.includes('meninjau') || value.includes('laporan ini sudah benar');
-                });
-
-                let input = null;
-                if (targetLabel) {
-                    const forId = targetLabel.getAttribute('for');
-                    if (forId) {
-                        input = document.getElementById(forId);
-                    }
-                    if (!input) {
-                        input = (targetLabel.parentElement || dialog).querySelector('input[type="checkbox"]');
-                    }
-                }
-                if (!input) {
-                    const all = Array.from(dialog.querySelectorAll('input[type="checkbox"]'));
-                    if (all.length === 1) {
-                        input = all[0];
-                    }
-                }
-                if (!input) return false;
-
-                if (!input.checked) {
-                    input.click();
-                }
-                if (!input.checked) {
-                    input.checked = true;
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-
-                const visualControl =
-                    input.closest('.v-selection-control')?.querySelector('.v-selection-control__wrapper') ||
-                    input.closest('.v-input')?.querySelector('.v-selection-control__wrapper');
-                if (!input.checked && visualControl) {
-                    visualControl.click();
-                }
-
-                return !!input.checked;
-                """
-            )
-        except Exception:
-            pass
 
         state = self._get_confirm_checkbox_state()
         if state.get("checked"):
@@ -266,6 +289,139 @@ class SeleniumBaseDriver(IAutomationDriver):
             """,
             textareas,
         )
+
+    def _get_submit_candidate_states(self) -> list:
+        if not self.sb:
+            return []
+        try:
+            states = self.sb.driver.execute_script(
+                """
+                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                const buttons = Array.from(dialog.querySelectorAll('button'));
+                return buttons
+                    .map((button) => {
+                        const text = ((button.textContent || '').trim().toLowerCase());
+                        const className = ((button.getAttribute('class') || '').toLowerCase());
+                        const isCandidate = text.includes('simpan') || text.includes('kirim') || text.includes('submit') || className.includes('bg-black');
+                        if (!isCandidate) return null;
+                        const disabled = button.hasAttribute('disabled') || className.includes('v-btn--disabled');
+                        return {text: text.slice(0, 60), disabled, class: className.slice(0, 120)};
+                    })
+                    .filter(Boolean);
+                """
+            )
+            return states if isinstance(states, list) else []
+        except Exception:
+            return []
+
+    def _ensure_attendance_hadir(self) -> bool:
+        if not self.sb:
+            return False
+        try:
+            native = self.sb.driver.execute_script(
+                """
+                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                const select = dialog.querySelector('select');
+                if (!select) return {handled: false, selected: false, source: 'no-native-select', value: ''};
+
+                const options = Array.from(select.options || []);
+                const target = options.find((opt) => normalize(opt.textContent).includes('hadir'));
+                if (!target) return {handled: true, selected: false, source: 'native-select-no-hadir', value: ''};
+
+                select.value = target.value;
+                if (select.value !== target.value) {
+                    target.selected = true;
+                }
+                select.dispatchEvent(new Event('input', { bubbles: true }));
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+
+                const chosen = options[select.selectedIndex] ? normalize(options[select.selectedIndex].textContent) : '';
+                return {handled: true, selected: chosen.includes('hadir'), source: 'native-select', value: chosen};
+                """
+            )
+            if isinstance(native, dict) and native.get("handled"):
+                self._log(
+                    "MH-FILL-ATTENDANCE",
+                    f"Attendance native select result: selected={native.get('selected')}, value={native.get('value')}",
+                )
+                return bool(native.get("selected"))
+        except Exception:
+            pass
+
+        try:
+            opened = self.sb.driver.execute_script(
+                """
+                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                const labels = Array.from(dialog.querySelectorAll('label, .v-label'));
+                const attendanceLabel = labels.find((el) => normalize(el.textContent).includes('kehadiran'));
+
+                let container = null;
+                if (attendanceLabel) {
+                    container =
+                        attendanceLabel.closest('.v-input') ||
+                        (attendanceLabel.parentElement || dialog).querySelector('.v-input, .v-select, [role="combobox"], .v-field');
+                }
+                if (!container) {
+                    container = Array.from(dialog.querySelectorAll('.v-input, .v-select, [role="combobox"], .v-field'))
+                        .find((el) => normalize(el.textContent).includes('kehadiran'));
+                }
+                if (!container) return false;
+
+                const target = container.querySelector('[role="combobox"], .v-field__input, .v-input__control, .v-field') || container;
+                target.scrollIntoView({ block: 'center' });
+                ['mousedown', 'mouseup', 'click'].forEach((name) => {
+                    target.dispatchEvent(new MouseEvent(name, { bubbles: true, cancelable: true, view: window }));
+                });
+                return true;
+                """
+            )
+            if opened:
+                option_selectors = [
+                    "//div[contains(@class,'v-overlay--active')]//div[contains(@class,'v-list-item-title') and normalize-space()='Hadir']",
+                    "//div[contains(@class,'v-overlay--active')]//*[@role='option'][contains(normalize-space(.), 'Hadir')]",
+                    "//div[contains(@class,'v-list-item')][contains(normalize-space(.), 'Hadir')]",
+                ]
+                for option_selector in option_selectors:
+                    try:
+                        self.sb.wait_for_element_visible(option_selector, timeout=2)
+                        self.sb.click(option_selector)
+                        break
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        try:
+            verify = self.sb.driver.execute_script(
+                """
+                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                const blocks = Array.from(dialog.querySelectorAll('.v-input, .v-select, [role="combobox"], .v-field, label, .v-label'));
+                const attendanceBlock = blocks.find((el) => normalize(el.textContent).includes('kehadiran'));
+                if (!attendanceBlock) return {selected: false, value: '', source: 'verify-not-found'};
+
+                const root = attendanceBlock.closest('.v-input') || attendanceBlock.parentElement || attendanceBlock;
+                const typed = root.querySelector('input');
+                const display =
+                    root.querySelector('.v-select__selection-text, .v-select__selection, .v-field__input') ||
+                    typed ||
+                    root;
+                const raw = typed && typed.value ? typed.value : (display.textContent || '');
+                const value = normalize(raw);
+                return {selected: value.includes('hadir'), value, source: 'verify-vuetify'};
+                """
+            )
+            if isinstance(verify, dict):
+                self._log(
+                    "MH-FILL-ATTENDANCE",
+                    f"Attendance verify result: selected={verify.get('selected')}, value={verify.get('value')}, source={verify.get('source')}",
+                )
+                return bool(verify.get("selected"))
+        except Exception:
+            pass
+        return False
 
     def execute_full_flow(self, email: str, password: str, report: Report) -> bool:
         """
@@ -396,6 +552,18 @@ class SeleniumBaseDriver(IAutomationDriver):
                     self._log("MH-FILL-ERR-CHECKBOX", "Confirmation checkbox is still unchecked after click")
                     self._save_debug_artifacts("checkbox_not_checked")
                     return False
+
+            submit_states = self._get_submit_candidate_states()
+            if submit_states and all(state.get("disabled") for state in submit_states):
+                self._log(
+                    "MH-FILL-SUBMIT-LOCKED",
+                    f"Submit still disabled after textarea+checkbox validation: {submit_states}",
+                )
+                attendance_ok = self._ensure_attendance_hadir()
+                if attendance_ok:
+                    self._log("MH-FILL-ATTENDANCE-OK", "Attendance field confirmed as 'Hadir'")
+                else:
+                    self._log("MH-FILL-ATTENDANCE-WARN", "Could not confirm attendance='Hadir' before submit phase")
 
             self._log("MH-FILL-OK", "Form filled")
             return True
