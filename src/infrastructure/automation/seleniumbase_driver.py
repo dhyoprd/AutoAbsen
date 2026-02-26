@@ -3,6 +3,7 @@ import traceback
 from datetime import datetime
 
 from seleniumbase import SB
+from selenium.webdriver.common.keys import Keys
 
 from src.core.interfaces import IAutomationDriver
 from src.core.entities import Report
@@ -277,10 +278,18 @@ class SeleniumBaseDriver(IAutomationDriver):
             except Exception:
                 pass
             try:
-                area.clear()
+                area.send_keys(Keys.CONTROL, "a")
+                area.send_keys(Keys.BACKSPACE)
+            except Exception:
+                try:
+                    area.clear()
+                except Exception:
+                    pass
+            area.send_keys(value)
+            try:
+                area.send_keys(Keys.TAB)
             except Exception:
                 pass
-            area.send_keys(value)
 
     def _get_textarea_lengths(self, textareas: list) -> list:
         return self.sb.driver.execute_script(
@@ -289,6 +298,22 @@ class SeleniumBaseDriver(IAutomationDriver):
             """,
             textareas,
         )
+
+    def _blur_textareas(self, textareas: list):
+        try:
+            self.sb.driver.execute_script(
+                """
+                arguments[0].forEach((el) => {
+                    try {
+                        el.blur();
+                        el.dispatchEvent(new Event('blur', { bubbles: true }));
+                    } catch (e) {}
+                });
+                """,
+                textareas,
+            )
+        except Exception:
+            pass
 
     def _get_submit_candidate_states(self) -> list:
         if not self.sb:
@@ -407,7 +432,14 @@ class SeleniumBaseDriver(IAutomationDriver):
 
     def _get_submit_feedback(self) -> dict:
         if not self.sb:
-            return {"errors": [], "submitButtons": [], "checkboxChecked": None, "source": "no-session"}
+            return {
+                "errors": [],
+                "invalidHints": [],
+                "submitButtons": [],
+                "checkboxChecked": None,
+                "attendanceValue": "",
+                "source": "no-session",
+            }
         try:
             feedback = self.sb.driver.execute_script(
                 """
@@ -443,6 +475,15 @@ class SeleniumBaseDriver(IAutomationDriver):
                         const text = normalize(node.textContent);
                         if (text) errors.push(text);
                     });
+                });
+                const invalidHints = [];
+                dialog.querySelectorAll('.v-input--error, [aria-invalid="true"], [aria-invalid=true]').forEach((node) => {
+                    const text = normalize(node.textContent);
+                    if (text) invalidHints.push(text);
+                    const label =
+                        node.getAttribute('aria-label') ||
+                        (node.closest('.v-input')?.querySelector('label, .v-label')?.textContent || '');
+                    if (label) invalidHints.push(`invalid: ${normalize(label)}`);
                 });
 
                 const buttons = Array.from(dialog.querySelectorAll('button'));
@@ -482,10 +523,23 @@ class SeleniumBaseDriver(IAutomationDriver):
                     if (input) checkboxChecked = !!input.checked;
                 }
 
+                let attendanceValue = '';
+                const attendanceLabels = Array.from(dialog.querySelectorAll('label, .v-label'));
+                const attendanceLabel = attendanceLabels.find((label) => lower(label.textContent).includes('kehadiran'));
+                if (attendanceLabel) {
+                    const root = attendanceLabel.closest('.v-input') || attendanceLabel.parentElement || dialog;
+                    const field =
+                        root.querySelector('input, select, .v-select__selection-text, .v-select__selection, .v-field__input') ||
+                        root;
+                    attendanceValue = normalize(field.value || field.textContent || '');
+                }
+
                 return {
                     errors: Array.from(new Set(errors)).slice(0, 5),
+                    invalidHints: Array.from(new Set(invalidHints)).slice(0, 6),
                     submitButtons,
                     checkboxChecked,
+                    attendanceValue,
                     source: 'dialog-feedback',
                 };
                 """
@@ -494,7 +548,14 @@ class SeleniumBaseDriver(IAutomationDriver):
                 return feedback
         except Exception:
             pass
-        return {"errors": [], "submitButtons": [], "checkboxChecked": None, "source": "feedback-fallback"}
+        return {
+            "errors": [],
+            "invalidHints": [],
+            "submitButtons": [],
+            "checkboxChecked": None,
+            "attendanceValue": "",
+            "source": "feedback-fallback",
+        }
 
     def _ensure_attendance_hadir(self) -> bool:
         if not self.sb:
@@ -708,18 +769,28 @@ class SeleniumBaseDriver(IAutomationDriver):
                 return False
 
             field_values = [report.activity, report.learning, report.obstacles]
-            self._fill_textareas_with_js(visible_textareas[:3], field_values)
+            self._fill_textareas_with_send_keys(visible_textareas[:3], field_values)
+            self._blur_textareas(visible_textareas[:3])
+            self.sb.sleep(1)
             filled_lengths = self._get_textarea_lengths(visible_textareas[:3])
             self._log("MH-FILL-LEN", f"Field lengths after fill: {filled_lengths}")
             if any(length < 100 for length in filled_lengths):
-                self._log("MH-FILL-LEN-RETRY", "Retrying textarea fill via send_keys fallback")
-                self._fill_textareas_with_send_keys(visible_textareas[:3], field_values)
+                self._log("MH-FILL-LEN-RETRY", "Retrying textarea fill via JS fallback")
+                self._fill_textareas_with_js(visible_textareas[:3], field_values)
+                self._blur_textareas(visible_textareas[:3])
+                self.sb.sleep(1)
                 filled_lengths = self._get_textarea_lengths(visible_textareas[:3])
                 self._log("MH-FILL-LEN", f"Field lengths after fallback fill: {filled_lengths}")
                 if any(length < 100 for length in filled_lengths):
                     self._log("MH-FILL-ERR-LEN", f"One or more field lengths are still below 100 chars: {filled_lengths}")
                     self._save_debug_artifacts("fill_length_invalid")
                     return False
+
+            attendance_ok = self._ensure_attendance_hadir()
+            if attendance_ok:
+                self._log("MH-FILL-ATTENDANCE-OK", "Attendance field confirmed as 'Hadir'")
+            else:
+                self._log("MH-FILL-ATTENDANCE-WARN", "Could not confirm attendance='Hadir' during fill phase")
 
             # Checkbox can be hidden in Vuetify; try label click first, then fallback to input.
             checkbox_state = self._get_confirm_checkbox_state()
@@ -735,17 +806,23 @@ class SeleniumBaseDriver(IAutomationDriver):
                     self._save_debug_artifacts("checkbox_not_checked")
                     return False
 
+            self.sb.sleep(1)
             submit_states = self._get_submit_candidate_states()
             if submit_states and all(state.get("disabled") for state in submit_states):
                 self._log(
                     "MH-FILL-SUBMIT-LOCKED",
                     f"Submit still disabled after textarea+checkbox validation: {submit_states}",
                 )
-                attendance_ok = self._ensure_attendance_hadir()
-                if attendance_ok:
-                    self._log("MH-FILL-ATTENDANCE-OK", "Attendance field confirmed as 'Hadir'")
-                else:
-                    self._log("MH-FILL-ATTENDANCE-WARN", "Could not confirm attendance='Hadir' before submit phase")
+                attendance_retry = self._ensure_attendance_hadir()
+                checkbox_retry = self._try_check_confirm_checkbox()
+                self._log(
+                    "MH-FILL-SUBMIT-RECOVER",
+                    f"Recovery attempt for locked submit: attendance_ok={attendance_retry}, checkbox_ok={checkbox_retry}",
+                )
+                self.sb.sleep(1)
+                submit_states = self._get_submit_candidate_states()
+                if submit_states:
+                    self._log("MH-FILL-SUBMIT-STATE", f"Submit state after recovery: {submit_states}")
 
             self._log("MH-FILL-OK", "Form filled")
             return True
@@ -766,6 +843,17 @@ class SeleniumBaseDriver(IAutomationDriver):
 
             submit_button = self._find_enabled_submit_button(attempts=10, sleep_seconds=1, log_wait=True)
             if submit_button is None:
+                self._log("MH-SUBMIT-RECOVER", "Submit locked. Retrying attendance + checkbox validation before failing.")
+                attendance_retry = self._ensure_attendance_hadir()
+                checkbox_retry = self._try_check_confirm_checkbox()
+                self._log(
+                    "MH-SUBMIT-RECOVER-STATE",
+                    f"Recovery results: attendance_ok={attendance_retry}, checkbox_ok={checkbox_retry}",
+                )
+                submit_button = self._find_enabled_submit_button(attempts=5, sleep_seconds=1, log_wait=False)
+            if submit_button is None:
+                feedback = self._get_submit_feedback()
+                self._log("MH-SUBMIT-LOCKED-DETAIL", f"Submit remained disabled; feedback={feedback}")
                 self._log("MH-SUBMIT-ERR-BUTTON", "Submit button candidate not found in enabled state")
                 self._save_debug_artifacts("submit_button_not_found")
                 return False

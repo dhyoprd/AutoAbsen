@@ -120,14 +120,19 @@ Gunakan kode ini untuk cepat identifikasi titik gagal di GitHub Actions log:
 | `MH-LOGIN-ERR-TIMEOUT` | Login tidak lanjut ke dashboard dalam batas waktu. |
 | `MH-NAV-ERR` | Gagal buka dialog laporan hari ini dari kalender. |
 | `MH-FILL-ERR-TEXTAREA` | Field textarea laporan tidak ditemukan/kurang dari 3. |
-| `MH-FILL-LEN-RETRY` | Panjang field belum valid setelah fill pertama, bot mencoba isi ulang via `send_keys`. |
+| `MH-FILL-LEN-RETRY` | Panjang field belum valid setelah fill pertama, bot mencoba strategi isi ulang alternatif. |
 | `MH-FILL-ERR-LEN` | Setelah diisi, panjang field masih di bawah minimal UI (100 karakter). |
 | `MH-FILL-ERR-CHECKBOX` | Checkbox konfirmasi tidak berhasil dicentang. |
 | `MH-FILL-SUBMIT-LOCKED` | Setelah fill + checkbox, tombol submit masih disabled (indikasi ada field required lain). |
+| `MH-FILL-SUBMIT-RECOVER` | Bot menjalankan recovery saat submit masih disabled (set ulang attendance + checkbox). |
+| `MH-FILL-SUBMIT-STATE` | Snapshot status submit button setelah recovery di fase fill. |
 | `MH-FILL-ATTENDANCE` | Hasil deteksi/penyetelan field kehadiran ke nilai `Hadir`. |
 | `MH-FILL-ATTENDANCE-OK` | Field kehadiran terkonfirmasi `Hadir`. |
-| `MH-FILL-ATTENDANCE-WARN` | Bot belum bisa konfirmasi field kehadiran `Hadir` sebelum submit phase. |
+| `MH-FILL-ATTENDANCE-WARN` | Bot belum bisa konfirmasi field kehadiran `Hadir` saat fase fill. |
 | `MH-SUBMIT-WAIT` | Kandidat tombol submit belum siap (masih disabled) atau belum terdeteksi di dialog aktif. |
+| `MH-SUBMIT-RECOVER` | Di fase submit, bot mencoba recovery jika tombol tetap disabled. |
+| `MH-SUBMIT-RECOVER-STATE` | Hasil recovery di fase submit (attendance/checkbox). |
+| `MH-SUBMIT-LOCKED-DETAIL` | Detail validasi form saat submit tetap disabled (errors/invalidHints/attendance/checkbox). |
 | `MH-SUBMIT-CLICK` | Bot sudah melakukan klik tombol submit. |
 | `MH-SUBMIT-PENDING` | Setelah klik submit, dialog masih terbuka dan bot melaporkan feedback validasi sementara. |
 | `MH-SUBMIT-RETRY` | Bot mencoba klik submit ulang karena tombol masih enabled tetapi dialog belum menutup. |
