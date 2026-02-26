@@ -314,6 +314,188 @@ class SeleniumBaseDriver(IAutomationDriver):
         except Exception:
             return []
 
+    def _find_enabled_submit_button(self, attempts: int = 10, sleep_seconds: int = 1, log_wait: bool = True):
+        submit_button = None
+        for attempt in range(attempts):
+            buttons = self.sb.driver.execute_script(
+                """
+                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                return Array.from(dialog.querySelectorAll('button'));
+                """
+            ) or []
+            candidate_states = []
+
+            for button in buttons:
+                button_text = (button.text or "").strip().lower()
+                button_class = (button.get_attribute("class") or "").lower()
+                is_candidate = (
+                    "simpan" in button_text
+                    or "kirim" in button_text
+                    or "submit" in button_text
+                    or "bg-black" in button_class
+                )
+                is_disabled = (
+                    button.get_attribute("disabled") is not None
+                    or "v-btn--disabled" in button_class
+                )
+                if is_candidate:
+                    candidate_states.append(
+                        {
+                            "text": button_text[:60],
+                            "disabled": is_disabled,
+                            "class": button_class[:120],
+                        }
+                    )
+                if is_candidate and not is_disabled:
+                    submit_button = button
+                    break
+
+            if submit_button is not None:
+                return submit_button
+
+            if log_wait:
+                if candidate_states:
+                    self._log(
+                        "MH-SUBMIT-WAIT",
+                        f"Attempt {attempt + 1}: submit candidate(s) exist but still disabled: {candidate_states}",
+                    )
+                else:
+                    self._log(
+                        "MH-SUBMIT-WAIT",
+                        f"Attempt {attempt + 1}: no submit candidate found in active dialog",
+                    )
+            self.sb.sleep(sleep_seconds)
+
+        return None
+
+    def _get_report_dialog_state(self) -> dict:
+        if not self.sb:
+            return {"open": False, "visibleDialogs": 0, "reportDialogs": 0, "source": "no-session"}
+        try:
+            state = self.sb.driver.execute_script(
+                """
+                const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                const nodes = Array.from(document.querySelectorAll('.v-dialog--active, .v-overlay--active, [role="dialog"]'));
+                const visible = nodes.filter((el) => {
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+                });
+                const reportDialogs = visible.filter((el) => {
+                    const text = normalize(el.textContent);
+                    const hasTextarea = !!el.querySelector('textarea');
+                    return (
+                        hasTextarea ||
+                        text.includes('tambah laporan harian') ||
+                        text.includes('uraian aktivitas') ||
+                        text.includes('simpan dan kirim')
+                    );
+                });
+                return {
+                    open: reportDialogs.length > 0,
+                    visibleDialogs: visible.length,
+                    reportDialogs: reportDialogs.length,
+                    source: 'active-dialog-scan',
+                };
+                """
+            )
+            if isinstance(state, dict):
+                return state
+        except Exception:
+            pass
+        return {"open": False, "visibleDialogs": 0, "reportDialogs": 0, "source": "scan-fallback"}
+
+    def _get_submit_feedback(self) -> dict:
+        if not self.sb:
+            return {"errors": [], "submitButtons": [], "checkboxChecked": None, "source": "no-session"}
+        try:
+            feedback = self.sb.driver.execute_script(
+                """
+                const normalize = (text) => (text || '').replace(/\\s+/g, ' ').trim();
+                const lower = (text) => normalize(text).toLowerCase();
+                const dialogs = Array.from(document.querySelectorAll('.v-dialog--active, .v-overlay--active, [role="dialog"]'));
+                const visible = dialogs.filter((el) => {
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+                });
+                const dialog = visible.find((el) => {
+                    const text = lower(el.textContent);
+                    return (
+                        !!el.querySelector('textarea') ||
+                        text.includes('tambah laporan harian') ||
+                        text.includes('uraian aktivitas') ||
+                        text.includes('simpan dan kirim')
+                    );
+                }) || visible[0] || document;
+
+                const errSelectors = [
+                    '.v-messages__message',
+                    '.error--text',
+                    '.text-danger',
+                    '.invalid-feedback',
+                    '.v-alert__content',
+                    '[role="alert"]',
+                ];
+                const errors = [];
+                errSelectors.forEach((selector) => {
+                    dialog.querySelectorAll(selector).forEach((node) => {
+                        const text = normalize(node.textContent);
+                        if (text) errors.push(text);
+                    });
+                });
+
+                const buttons = Array.from(dialog.querySelectorAll('button'));
+                const submitButtons = buttons
+                    .map((button) => {
+                        const text = lower(button.textContent);
+                        const cls = lower(button.getAttribute('class') || '');
+                        const isCandidate = text.includes('simpan') || text.includes('kirim') || text.includes('submit') || cls.includes('bg-black');
+                        if (!isCandidate) return null;
+                        const disabled = button.hasAttribute('disabled') || cls.includes('v-btn--disabled');
+                        return { text: text.slice(0, 60), disabled, class: cls.slice(0, 120) };
+                    })
+                    .filter(Boolean);
+
+                let checkboxChecked = null;
+                const labels = Array.from(dialog.querySelectorAll('label'));
+                const targetLabel = labels.find((label) => {
+                    const text = lower(label.textContent);
+                    return text.includes('meninjau') || text.includes('laporan ini sudah benar');
+                });
+                if (targetLabel) {
+                    const forId = targetLabel.getAttribute('for');
+                    let input = null;
+                    if (forId) {
+                        try {
+                            const escaped = (window.CSS && CSS.escape) ? CSS.escape(forId) : forId;
+                            input = dialog.querySelector(`#${escaped}`);
+                        } catch (e) {}
+                        if (!input) {
+                            const byDoc = document.getElementById(forId);
+                            if (byDoc && dialog.contains(byDoc)) input = byDoc;
+                        }
+                    }
+                    if (!input) {
+                        input = (targetLabel.parentElement || dialog).querySelector('input[type="checkbox"]');
+                    }
+                    if (input) checkboxChecked = !!input.checked;
+                }
+
+                return {
+                    errors: Array.from(new Set(errors)).slice(0, 5),
+                    submitButtons,
+                    checkboxChecked,
+                    source: 'dialog-feedback',
+                };
+                """
+            )
+            if isinstance(feedback, dict):
+                return feedback
+        except Exception:
+            pass
+        return {"errors": [], "submitButtons": [], "checkboxChecked": None, "source": "feedback-fallback"}
+
     def _ensure_attendance_hadir(self) -> bool:
         if not self.sb:
             return False
@@ -582,77 +764,49 @@ class SeleniumBaseDriver(IAutomationDriver):
                 self._save_debug_artifacts("submit_checkbox_unchecked")
                 return False
 
-            submit_button = None
-
-            # Wait until candidate submit button is enabled.
-            for attempt in range(10):
-                buttons = self.sb.driver.execute_script(
-                    """
-                    const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
-                    return Array.from(dialog.querySelectorAll('button'));
-                    """
-                ) or []
-                candidate_states = []
-                for button in buttons:
-                    button_text = (button.text or "").strip().lower()
-                    button_class = (button.get_attribute("class") or "").lower()
-                    is_candidate = (
-                        "simpan" in button_text
-                        or "kirim" in button_text
-                        or "submit" in button_text
-                        or "bg-black" in button_class
-                    )
-                    is_disabled = (
-                        button.get_attribute("disabled") is not None
-                        or "v-btn--disabled" in button_class
-                    )
-                    if is_candidate:
-                        candidate_states.append(
-                            {
-                                "text": button_text[:60],
-                                "disabled": is_disabled,
-                                "class": button_class[:120],
-                            }
-                        )
-                    if is_candidate and not is_disabled:
-                        submit_button = button
-                        break
-
-                if submit_button is not None:
-                    break
-
-                if candidate_states:
-                    self._log(
-                        "MH-SUBMIT-WAIT",
-                        f"Attempt {attempt + 1}: submit candidate(s) exist but still disabled: {candidate_states}",
-                    )
-                else:
-                    self._log(
-                        "MH-SUBMIT-WAIT",
-                        f"Attempt {attempt + 1}: no submit candidate found in active dialog",
-                    )
-                self.sb.sleep(1)
-
+            submit_button = self._find_enabled_submit_button(attempts=10, sleep_seconds=1, log_wait=True)
             if submit_button is None:
                 self._log("MH-SUBMIT-ERR-BUTTON", "Submit button candidate not found in enabled state")
                 self._save_debug_artifacts("submit_button_not_found")
                 return False
 
-            try:
-                submit_button.click()
-            except Exception:
-                self.sb.driver.execute_script(
-                    "arguments[0].scrollIntoView({block: 'center'});", submit_button
-                )
-                self.sb.driver.execute_script("arguments[0].click();", submit_button)
+            for click_attempt in range(2):
+                try:
+                    submit_button.click()
+                except Exception:
+                    self.sb.driver.execute_script(
+                        "arguments[0].scrollIntoView({block: 'center'});", submit_button
+                    )
+                    self.sb.driver.execute_script("arguments[0].click();", submit_button)
+                self._log("MH-SUBMIT-CLICK", f"Submit button clicked (attempt={click_attempt + 1})")
 
-            # Validation: dialog should close after submit.
-            for _ in range(10):
-                if not self.sb.is_element_visible(Sel.DIALOG_CONTAINER):
-                    self._log("MH-SUBMIT-OK", "Report submitted successfully")
-                    return True
-                self.sb.sleep(1)
+                # Validation: report dialog should close.
+                for wait_idx in range(20):
+                    dialog_state = self._get_report_dialog_state()
+                    if not dialog_state.get("open"):
+                        self._log("MH-SUBMIT-OK", "Report submitted successfully")
+                        return True
 
+                    if wait_idx in {4, 9, 14, 19}:
+                        feedback = self._get_submit_feedback()
+                        self._log(
+                            "MH-SUBMIT-PENDING",
+                            f"Dialog still open after {wait_idx + 1}s; feedback={feedback}",
+                        )
+                    self.sb.sleep(1)
+
+                if click_attempt == 0:
+                    feedback = self._get_submit_feedback()
+                    can_retry_click = any(not btn.get("disabled") for btn in feedback.get("submitButtons", []))
+                    if can_retry_click:
+                        self._log("MH-SUBMIT-RETRY", "Retrying submit click because dialog remains open but button is enabled")
+                        submit_button = self._find_enabled_submit_button(attempts=3, sleep_seconds=1, log_wait=False)
+                        if submit_button is not None:
+                            continue
+                break
+
+            final_feedback = self._get_submit_feedback()
+            self._log("MH-SUBMIT-ERR-DETAIL", f"Dialog remained open after submit attempts; feedback={final_feedback}")
             self._log("MH-SUBMIT-ERR-DIALOG", "Dialog still visible after submit")
             self._save_debug_artifacts("submit_not_closed")
             return False

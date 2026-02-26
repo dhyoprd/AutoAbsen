@@ -128,6 +128,10 @@ Gunakan kode ini untuk cepat identifikasi titik gagal di GitHub Actions log:
 | `MH-FILL-ATTENDANCE-OK` | Field kehadiran terkonfirmasi `Hadir`. |
 | `MH-FILL-ATTENDANCE-WARN` | Bot belum bisa konfirmasi field kehadiran `Hadir` sebelum submit phase. |
 | `MH-SUBMIT-WAIT` | Kandidat tombol submit belum siap (masih disabled) atau belum terdeteksi di dialog aktif. |
+| `MH-SUBMIT-CLICK` | Bot sudah melakukan klik tombol submit. |
+| `MH-SUBMIT-PENDING` | Setelah klik submit, dialog masih terbuka dan bot melaporkan feedback validasi sementara. |
+| `MH-SUBMIT-RETRY` | Bot mencoba klik submit ulang karena tombol masih enabled tetapi dialog belum menutup. |
+| `MH-SUBMIT-ERR-DETAIL` | Ringkasan feedback error/validasi dari dialog saat submit gagal. |
 | `MH-SUBMIT-ERR-BUTTON` | Tombol submit tidak ditemukan dalam kondisi enabled. |
 | `MH-SUBMIT-ERR-CHECKBOX` | Submit diblokir karena checkbox konfirmasi masih unchecked. |
 | `MH-SUBMIT-ERR-DIALOG` | Setelah klik submit, dialog tidak menutup (indikasi submit gagal). |
