@@ -104,5 +104,29 @@ python src/external_presensi_runner.py
 - Jika UI Maganghub berubah, update selector di `src/infrastructure/automation/selectors.py`.
 - Validasi laporan domain memakai minimum panjang karakter terpusat di `src/core/entities.py`.
 
+## Kode Log Troubleshooting (Maganghub)
+Gunakan kode ini untuk cepat identifikasi titik gagal di GitHub Actions log:
+
+| Kode | Arti |
+|---|---|
+| `WF-CONFIG-ERR` | Secret Telegram untuk workflow tidak lengkap. |
+| `WF-NOTIFY-ERR` | Gagal kirim reminder awal ke Telegram. |
+| `WF-GEN-ERR` | Gagal generate draft laporan dari AI. |
+| `WF-TIMEOUT` | Tidak ada interaksi user sampai batas waktu 15 menit. |
+| `WF-SUBMIT-EXCEPTION` | Ada exception saat proses submit report. |
+| `WF-SUBMIT-ERR` | Submit selesai tapi hasilnya gagal (false). |
+| `MH-DRIVER-START-ERR` | Browser Selenium gagal start. |
+| `MH-LOGIN-ERR-REJECTED` | Kredensial ditolak oleh halaman login. |
+| `MH-LOGIN-ERR-TIMEOUT` | Login tidak lanjut ke dashboard dalam batas waktu. |
+| `MH-NAV-ERR` | Gagal buka dialog laporan hari ini dari kalender. |
+| `MH-FILL-ERR-TEXTAREA` | Field textarea laporan tidak ditemukan/kurang dari 3. |
+| `MH-FILL-LEN-RETRY` | Panjang field belum valid setelah fill pertama, bot mencoba isi ulang via `send_keys`. |
+| `MH-FILL-ERR-LEN` | Setelah diisi, panjang field masih di bawah minimal UI (100 karakter). |
+| `MH-FILL-ERR-CHECKBOX` | Checkbox konfirmasi tidak berhasil dicentang. |
+| `MH-SUBMIT-WAIT` | Kandidat tombol submit belum siap (masih disabled) atau belum terdeteksi di dialog aktif. |
+| `MH-SUBMIT-ERR-BUTTON` | Tombol submit tidak ditemukan dalam kondisi enabled. |
+| `MH-SUBMIT-ERR-CHECKBOX` | Submit diblokir karena checkbox konfirmasi masih unchecked. |
+| `MH-SUBMIT-ERR-DIALOG` | Setelah klik submit, dialog tidak menutup (indikasi submit gagal). |
+
 ## Disclaimer
 Gunakan alat ini secara bertanggung jawab dan isi laporan sesuai aktivitas nyata.

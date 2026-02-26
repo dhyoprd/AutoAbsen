@@ -28,6 +28,9 @@ class SeleniumBaseDriver(IAutomationDriver):
         else:
             self.use_uc = env_uc.strip().lower() in {"1", "true", "yes", "on"}
 
+    def _log(self, code: str, message: str):
+        print(f"[{code}] {message}")
+
     def _start_session(self) -> bool:
         if self.sb is not None:
             return True
@@ -35,10 +38,16 @@ class SeleniumBaseDriver(IAutomationDriver):
         try:
             self._sb_context = SB(uc=self.use_uc, headless=self.headless, test=True)
             self.sb = self._sb_context.__enter__()
-            print(f"-> Browser session started (uc={self.use_uc}, headless={self.headless})")
+            self._log(
+                "MH-DRIVER-START-OK",
+                f"Browser session started (uc={self.use_uc}, headless={self.headless})",
+            )
             return True
         except Exception as e:
-            print(f"X Failed to start browser session (uc={self.use_uc}): {e}")
+            self._log(
+                "MH-DRIVER-START-ERR",
+                f"Failed to start browser session (uc={self.use_uc}): {e}",
+            )
             self.sb = None
             self._sb_context = None
 
@@ -48,10 +57,16 @@ class SeleniumBaseDriver(IAutomationDriver):
                     self._sb_context = SB(uc=False, headless=self.headless, test=True)
                     self.sb = self._sb_context.__enter__()
                     self.use_uc = False
-                    print("-> Browser session recovered with fallback (uc=False)")
+                    self._log(
+                        "MH-DRIVER-START-FALLBACK-OK",
+                        "Browser session recovered with fallback (uc=False)",
+                    )
                     return True
                 except Exception as fallback_error:
-                    print(f"X Fallback browser session also failed: {fallback_error}")
+                    self._log(
+                        "MH-DRIVER-START-FALLBACK-ERR",
+                        f"Fallback browser session also failed: {fallback_error}",
+                    )
                     self.sb = None
                     self._sb_context = None
             return False
@@ -83,6 +98,175 @@ class SeleniumBaseDriver(IAutomationDriver):
         except Exception:
             pass
 
+    def _get_confirm_checkbox_state(self) -> dict:
+        if not self.sb:
+            return {"found": False, "checked": False, "forId": "", "source": "no-session"}
+
+        try:
+            state = self.sb.driver.execute_script(
+                """
+                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                const keywords = ['meninjau', 'isian laporan ini sudah benar', 'laporan ini sudah benar'];
+
+                const labels = Array.from(dialog.querySelectorAll('label'));
+                for (const label of labels) {
+                    const labelText = normalize(label.textContent);
+                    if (!keywords.some((key) => labelText.includes(key))) continue;
+
+                    const forId = label.getAttribute('for') || '';
+                    if (forId) {
+                        const byId = document.getElementById(forId);
+                        if (byId && byId.type === 'checkbox') {
+                            return {found: true, checked: !!byId.checked, forId, source: 'label-for'};
+                        }
+                    }
+
+                    const parent = label.parentElement || dialog;
+                    const nested = parent.querySelector('input[type="checkbox"]');
+                    if (nested) {
+                        return {
+                            found: true,
+                            checked: !!nested.checked,
+                            forId: nested.id || '',
+                            source: 'label-parent',
+                        };
+                    }
+                }
+
+                const checkboxes = Array.from(dialog.querySelectorAll('input[type="checkbox"]'));
+                if (checkboxes.length === 1) {
+                    return {
+                        found: true,
+                        checked: !!checkboxes[0].checked,
+                        forId: checkboxes[0].id || '',
+                        source: 'single-fallback',
+                    };
+                }
+
+                return {found: false, checked: false, forId: '', source: 'not-found'};
+                """
+            )
+            if not isinstance(state, dict):
+                return {"found": False, "checked": False, "forId": "", "source": "invalid-response"}
+            return state
+        except Exception:
+            return {"found": False, "checked": False, "forId": "", "source": "js-exception"}
+
+    def _try_check_confirm_checkbox(self) -> bool:
+        if not self.sb:
+            return False
+
+        label_strategies = [
+            Sel.CONFIRM_CHECKBOX_LABEL,
+            "//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'meninjau')]",
+            "//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'laporan')]",
+        ]
+        for selector in label_strategies:
+            try:
+                self.sb.click(selector)
+            except Exception:
+                continue
+
+            state = self._get_confirm_checkbox_state()
+            if state.get("checked"):
+                self._log("MH-FILL-CHECKBOX-OK", f"Checkbox checked via selector strategy ({state.get('source')}).")
+                return True
+
+        try:
+            self.sb.driver.execute_script(
+                """
+                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                const labels = Array.from(dialog.querySelectorAll('label'));
+                const targetLabel = labels.find((label) => {
+                    const value = normalize(label.textContent);
+                    return value.includes('meninjau') || value.includes('laporan ini sudah benar');
+                });
+
+                let input = null;
+                if (targetLabel) {
+                    const forId = targetLabel.getAttribute('for');
+                    if (forId) {
+                        input = document.getElementById(forId);
+                    }
+                    if (!input) {
+                        input = (targetLabel.parentElement || dialog).querySelector('input[type="checkbox"]');
+                    }
+                }
+                if (!input) {
+                    const all = Array.from(dialog.querySelectorAll('input[type="checkbox"]'));
+                    if (all.length === 1) {
+                        input = all[0];
+                    }
+                }
+                if (!input) return false;
+
+                if (!input.checked) {
+                    input.click();
+                }
+                if (!input.checked) {
+                    input.checked = true;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                const visualControl =
+                    input.closest('.v-selection-control')?.querySelector('.v-selection-control__wrapper') ||
+                    input.closest('.v-input')?.querySelector('.v-selection-control__wrapper');
+                if (!input.checked && visualControl) {
+                    visualControl.click();
+                }
+
+                return !!input.checked;
+                """
+            )
+        except Exception:
+            pass
+
+        state = self._get_confirm_checkbox_state()
+        if state.get("checked"):
+            self._log("MH-FILL-CHECKBOX-OK", f"Checkbox checked via JS strategy ({state.get('source')}).")
+            return True
+        return False
+
+    def _fill_textareas_with_js(self, textareas: list, values: list):
+        for index, value in enumerate(values):
+            area = textareas[index]
+            self.sb.driver.execute_script(
+                """
+                arguments[0].focus();
+                arguments[0].value = '';
+                arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                arguments[0].value = arguments[1];
+                arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+                """,
+                area,
+                value,
+            )
+
+    def _fill_textareas_with_send_keys(self, textareas: list, values: list):
+        for index, value in enumerate(values):
+            area = textareas[index]
+            try:
+                area.click()
+            except Exception:
+                pass
+            try:
+                area.clear()
+            except Exception:
+                pass
+            area.send_keys(value)
+
+    def _get_textarea_lengths(self, textareas: list) -> list:
+        return self.sb.driver.execute_script(
+            """
+            return arguments[0].map((el) => ((el.value || '').trim().length));
+            """,
+            textareas,
+        )
+
     def execute_full_flow(self, email: str, password: str, report: Report) -> bool:
         """
         Executes the full automation flow in one browser session.
@@ -103,7 +287,7 @@ class SeleniumBaseDriver(IAutomationDriver):
 
     def _login(self, email: str, password: str) -> bool:
         try:
-            print("-> Opening Login Page...")
+            self._log("MH-LOGIN-START", "Opening login page")
             self.sb.open(Sel.LOGIN_URL)
             self.sb.wait_for_element_visible(Sel.USERNAME_INPUT, timeout=15)
             self.sb.wait_for_element_visible(Sel.PASSWORD_INPUT, timeout=15)
@@ -116,48 +300,51 @@ class SeleniumBaseDriver(IAutomationDriver):
                 current_url = (self.sb.get_current_url() or "").lower()
 
                 if "/login" not in current_url and "monev.maganghub.kemnaker.go.id" in current_url:
-                    print(f"OK Login redirect detected: {current_url}")
+                    self._log("MH-LOGIN-OK-REDIRECT", f"Login redirect detected: {current_url}")
                     return True
 
                 if self.sb.is_element_visible(Sel.DASHBOARD_MARKERS):
-                    print("OK Dashboard marker found")
+                    self._log("MH-LOGIN-OK-MARKER", "Dashboard marker found")
                     return True
 
                 if self.sb.is_element_visible(Sel.LOGIN_ERROR_TEXT):
                     err_text = self.sb.get_text(Sel.LOGIN_ERROR_TEXT)
-                    print(f"X Login rejected by server: {err_text}")
+                    self._log("MH-LOGIN-ERR-REJECTED", f"Login rejected by server: {err_text}")
                     self._save_debug_artifacts("login_rejected")
                     return False
 
                 self.sb.sleep(1)
 
             self._save_debug_artifacts("login_timeout")
-            print("X Login timeout: dashboard marker not found and URL stayed on login page")
+            self._log(
+                "MH-LOGIN-ERR-TIMEOUT",
+                "Login timeout: dashboard marker not found and URL stayed on login page",
+            )
             return False
         except Exception as e:
-            print(f"X Login failed: {e}")
+            self._log("MH-LOGIN-ERR-EXCEPTION", f"Login failed: {e}")
             self._save_debug_artifacts("login_exception")
             return False
 
     def _navigate_to_today(self) -> bool:
         try:
-            print("-> Navigating to Today's Report...")
+            self._log("MH-NAV-START", "Navigating to today's report dialog")
             # Assuming we are on dashboard with calendar
             self.sb.wait_for_element_clickable(Sel.CALENDAR_TODAY_CELL, timeout=10)
             self.sb.click(Sel.CALENDAR_TODAY_CELL)
             
             # Wait for dialog
             self.sb.wait_for_element_visible(Sel.DIALOG_CONTAINER, timeout=5)
-            print("OK Report dialog opened")
+            self._log("MH-NAV-OK", "Report dialog opened")
             return True
         except Exception as e:
-            print(f"X Failed to open report dialog: {e}")
+            self._log("MH-NAV-ERR", f"Failed to open report dialog: {e}")
             self._save_debug_artifacts("navigate_exception")
             return False
 
     def _fill_form(self, report: Report) -> bool:
         try:
-            print("-> Filling Report Form...")
+            self._log("MH-FILL-START", "Filling report form")
 
             self.sb.wait_for_element_visible(Sel.TEXTAREA, timeout=10)
             textareas = self.sb.find_elements(Sel.TEXTAREA)
@@ -175,91 +362,69 @@ class SeleniumBaseDriver(IAutomationDriver):
             )
 
             if len(visible_textareas) < 3:
-                print(f"! Not enough visible textareas found! got={len(visible_textareas)} total={len(textareas)}")
+                self._log(
+                    "MH-FILL-ERR-TEXTAREA",
+                    f"Not enough visible textareas found (got={len(visible_textareas)}, total={len(textareas)})",
+                )
                 self._save_debug_artifacts("textareas_not_enough")
                 return False
 
             field_values = [report.activity, report.learning, report.obstacles]
-            for index, value in enumerate(field_values):
-                area = visible_textareas[index]
-                self.sb.driver.execute_script(
-                    """
-                    arguments[0].focus();
-                    arguments[0].value = '';
-                    arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-                    arguments[0].value = arguments[1];
-                    arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-                    arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
-                    """,
-                    area,
-                    value,
-                )
+            self._fill_textareas_with_js(visible_textareas[:3], field_values)
+            filled_lengths = self._get_textarea_lengths(visible_textareas[:3])
+            self._log("MH-FILL-LEN", f"Field lengths after fill: {filled_lengths}")
+            if any(length < 100 for length in filled_lengths):
+                self._log("MH-FILL-LEN-RETRY", "Retrying textarea fill via send_keys fallback")
+                self._fill_textareas_with_send_keys(visible_textareas[:3], field_values)
+                filled_lengths = self._get_textarea_lengths(visible_textareas[:3])
+                self._log("MH-FILL-LEN", f"Field lengths after fallback fill: {filled_lengths}")
+                if any(length < 100 for length in filled_lengths):
+                    self._log("MH-FILL-ERR-LEN", f"One or more field lengths are still below 100 chars: {filled_lengths}")
+                    self._save_debug_artifacts("fill_length_invalid")
+                    return False
 
             # Checkbox can be hidden in Vuetify; try label click first, then fallback to input.
-            is_checked = self.sb.driver.execute_script(
-                """
-                const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
-                const checks = Array.from(dialog.querySelectorAll('input[type="checkbox"]'));
-                return checks.some((c) => c.checked);
-                """
+            checkbox_state = self._get_confirm_checkbox_state()
+            self._log(
+                "MH-FILL-CHECKBOX-STATE",
+                f"Confirm checkbox state before click: found={checkbox_state.get('found')}, "
+                f"checked={checkbox_state.get('checked')}, source={checkbox_state.get('source')}",
             )
-
-            if not is_checked:
-                label_clicked = False
-                label_strategies = [
-                    Sel.CONFIRM_CHECKBOX_LABEL,
-                    "//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'meninjau')]",
-                    "//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'laporan')]",
-                ]
-                for selector in label_strategies:
-                    try:
-                        self.sb.click(selector)
-                        label_clicked = True
-                        break
-                    except Exception:
-                        continue
-
-                if not label_clicked:
-                    try:
-                        # fallback: click any checkbox in active dialog via JS
-                        self.sb.driver.execute_script(
-                            """
-                            const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
-                            const cb = dialog.querySelector('input[type="checkbox"]');
-                            if (cb) { cb.click(); }
-                            """
-                        )
-                    except Exception:
-                        pass
-
-                is_checked = self.sb.driver.execute_script(
-                    """
-                    const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
-                    const checks = Array.from(dialog.querySelectorAll('input[type="checkbox"]'));
-                    return checks.length === 0 ? true : checks.some((c) => c.checked);
-                    """
-                )
-                if not is_checked:
-                    print("! Confirmation checkbox is still unchecked after click")
+            if not checkbox_state.get("checked"):
+                checked = self._try_check_confirm_checkbox()
+                if not checked:
+                    self._log("MH-FILL-ERR-CHECKBOX", "Confirmation checkbox is still unchecked after click")
                     self._save_debug_artifacts("checkbox_not_checked")
                     return False
 
-            print("OK Form filled")
+            self._log("MH-FILL-OK", "Form filled")
             return True
         except Exception as e:
-            print(f"X Failed to fill form: {e}")
-            print(traceback.format_exc())
+            self._log("MH-FILL-ERR-EXCEPTION", f"Failed to fill form: {e}")
+            self._log("MH-FILL-TRACE", traceback.format_exc())
             self._save_debug_artifacts("fill_exception")
             return False
 
     def _submit(self) -> bool:
         try:
-            print("-> Submitting Report...")
+            self._log("MH-SUBMIT-START", "Submitting report")
+            checkbox_state = self._get_confirm_checkbox_state()
+            if checkbox_state.get("found") and not checkbox_state.get("checked"):
+                self._log("MH-SUBMIT-ERR-CHECKBOX", "Submit blocked because confirmation checkbox is unchecked")
+                self._save_debug_artifacts("submit_checkbox_unchecked")
+                return False
+
             submit_button = None
 
             # Wait until candidate submit button is enabled.
-            for _ in range(10):
-                buttons = self.sb.find_elements("button")
+            for attempt in range(10):
+                buttons = self.sb.driver.execute_script(
+                    """
+                    const dialog = document.querySelector('.v-dialog--active, .v-overlay--active, [role="dialog"]') || document;
+                    return Array.from(dialog.querySelectorAll('button'));
+                    """
+                ) or []
+                candidate_states = []
                 for button in buttons:
                     button_text = (button.text or "").strip().lower()
                     button_class = (button.get_attribute("class") or "").lower()
@@ -273,16 +438,35 @@ class SeleniumBaseDriver(IAutomationDriver):
                         button.get_attribute("disabled") is not None
                         or "v-btn--disabled" in button_class
                     )
+                    if is_candidate:
+                        candidate_states.append(
+                            {
+                                "text": button_text[:60],
+                                "disabled": is_disabled,
+                                "class": button_class[:120],
+                            }
+                        )
                     if is_candidate and not is_disabled:
                         submit_button = button
                         break
 
                 if submit_button is not None:
                     break
+
+                if candidate_states:
+                    self._log(
+                        "MH-SUBMIT-WAIT",
+                        f"Attempt {attempt + 1}: submit candidate(s) exist but still disabled: {candidate_states}",
+                    )
+                else:
+                    self._log(
+                        "MH-SUBMIT-WAIT",
+                        f"Attempt {attempt + 1}: no submit candidate found in active dialog",
+                    )
                 self.sb.sleep(1)
 
             if submit_button is None:
-                print("! Submit button candidate not found in enabled state")
+                self._log("MH-SUBMIT-ERR-BUTTON", "Submit button candidate not found in enabled state")
                 self._save_debug_artifacts("submit_button_not_found")
                 return False
 
@@ -297,15 +481,15 @@ class SeleniumBaseDriver(IAutomationDriver):
             # Validation: dialog should close after submit.
             for _ in range(10):
                 if not self.sb.is_element_visible(Sel.DIALOG_CONTAINER):
-                    print("OK Report submitted successfully")
+                    self._log("MH-SUBMIT-OK", "Report submitted successfully")
                     return True
                 self.sb.sleep(1)
 
-            print("! Dialog still visible, submit might have failed")
+            self._log("MH-SUBMIT-ERR-DIALOG", "Dialog still visible after submit")
             self._save_debug_artifacts("submit_not_closed")
             return False
         except Exception as e:
-            print(f"X Failed to submit: {e}")
+            self._log("MH-SUBMIT-ERR-EXCEPTION", f"Failed to submit: {e}")
             self._save_debug_artifacts("submit_exception")
             return False
 

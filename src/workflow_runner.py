@@ -52,9 +52,9 @@ class WorkflowBot:
                      "It's 4 PM! What did you do today?\n"
                      "Reply to this message within 15 minutes to generate your report."
             )
-            logger.info(f"Notification sent to {config.allowed_telegram_id}")
+            logger.info(f"[WF-NOTIFY-OK] Notification sent to {config.allowed_telegram_id}")
         except Exception as e:
-            logger.error(f"Failed to send notification: {e}")
+            logger.error(f"[WF-NOTIFY-ERR] Failed to send notification: {e}")
             self.submission_success = False
             self.interaction_complete = True # Exit if we can't notify
 
@@ -98,7 +98,7 @@ class WorkflowBot:
                 await update.message.reply_text(response_text, parse_mode="Markdown")
                 
             except Exception as e:
-                logger.error(f"Generation error: {e}")
+                logger.error(f"[WF-GEN-ERR] Generation error: {e}")
                 await update.message.reply_text("❌ Error generating report. Try again.")
 
         elif self.state == "WAITING_CONFIRM":
@@ -121,13 +121,16 @@ class WorkflowBot:
                     )
                     
                     if success:
+                        logger.info("[WF-SUBMIT-OK] Report submitted successfully.")
                         await update.message.reply_text("🎉 Report Submitted Successfully!")
                         self.submission_success = True
                     else:
+                        logger.warning("[WF-SUBMIT-ERR] Report submission returned unsuccessful result.")
                         await update.message.reply_text("❌ Submission Failed. Check GitHub Actions logs.")
                         self.submission_success = False
 
                 except Exception as e:
+                    logger.error(f"[WF-SUBMIT-EXCEPTION] Automation exception: {e}")
                     await update.message.reply_text(f"❌ Automation Error: {e}")
                     self.submission_success = False
 
@@ -160,7 +163,7 @@ class WorkflowBot:
         
         while not self.interaction_complete:
             if time.time() - self.start_time > self.MAX_DURATION:
-                logger.warning("Timeout reached. Exiting.")
+                logger.warning("[WF-TIMEOUT] Timeout reached. Exiting.")
                 self.submission_success = False
                 try:
                     await self.app.bot.send_message(
@@ -181,7 +184,7 @@ class WorkflowBot:
 async def main_async() -> bool:
     setup_logger()
     if not config.telegram_bot_token or not config.allowed_telegram_id:
-        logger.error("Missing Telegram Config")
+        logger.error("[WF-CONFIG-ERR] Missing Telegram config")
         return False
 
     bot = WorkflowBot()
