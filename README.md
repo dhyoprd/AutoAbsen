@@ -120,6 +120,7 @@ Gunakan kode ini untuk cepat identifikasi titik gagal di GitHub Actions log:
 | `MH-LOGIN-ERR-TIMEOUT` | Login tidak lanjut ke dashboard dalam batas waktu. |
 | `MH-NAV-ERR` | Gagal buka dialog laporan hari ini dari kalender. |
 | `MH-FILL-ERR-TEXTAREA` | Field textarea laporan tidak ditemukan/kurang dari 3. |
+| `MH-FILL-FIELD-LEN` | Panjang tiap field setelah percobaan isi per-field (index 0/1/2). |
 | `MH-FILL-LEN-RETRY` | Panjang field belum valid setelah fill pertama, bot mencoba strategi isi ulang alternatif. |
 | `MH-FILL-ERR-LEN` | Setelah diisi, panjang field masih di bawah minimal UI (100 karakter). |
 | `MH-FILL-ERR-CHECKBOX` | Checkbox konfirmasi tidak berhasil dicentang. |

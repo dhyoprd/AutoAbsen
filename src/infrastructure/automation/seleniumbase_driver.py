@@ -254,42 +254,104 @@ class SeleniumBaseDriver(IAutomationDriver):
             return True
         return False
 
-    def _fill_textareas_with_js(self, textareas: list, values: list):
-        for index, value in enumerate(values):
-            area = textareas[index]
-            self.sb.driver.execute_script(
+    def _get_visible_report_textareas(self) -> list:
+        if not self.sb:
+            return []
+        try:
+            return self.sb.driver.execute_script(
                 """
-                arguments[0].focus();
-                arguments[0].value = '';
-                arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-                arguments[0].value = arguments[1];
-                arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-                arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
-                """,
-                area,
-                value,
-            )
+                const all = Array.from(document.querySelectorAll('textarea'));
+                return all.filter((el) => {
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    const visible = rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+                    const inActiveOverlay = !!el.closest('.v-overlay--active, .v-dialog--active, [role="dialog"]');
+                    return visible && inActiveOverlay;
+                });
+                """
+            ) or []
+        except Exception:
+            return []
 
-    def _fill_textareas_with_send_keys(self, textareas: list, values: list):
+    def _fill_single_textarea_send_keys(self, area, value: str):
+        try:
+            self.sb.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", area)
+        except Exception:
+            pass
+        try:
+            area.click()
+        except Exception:
+            pass
+        try:
+            area.send_keys(Keys.CONTROL, "a")
+            area.send_keys(Keys.BACKSPACE)
+        except Exception:
+            try:
+                area.clear()
+            except Exception:
+                pass
+        area.send_keys(value)
+        try:
+            area.send_keys(Keys.TAB)
+        except Exception:
+            pass
+
+    def _fill_single_textarea_js(self, area, value: str):
+        self.sb.driver.execute_script(
+            """
+            arguments[0].focus();
+            arguments[0].value = '';
+            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+            arguments[0].value = arguments[1];
+            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+            arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+            arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));
+            """,
+            area,
+            value,
+        )
+
+    def _fill_report_fields_robust(self, values: list) -> list:
+        """Fill activity/learning/obstacles one-by-one with fresh element lookup."""
+        methods = ("send_keys", "js", "send_keys")
+        final_lengths = [0, 0, 0]
+
         for index, value in enumerate(values):
-            area = textareas[index]
-            try:
-                area.click()
-            except Exception:
-                pass
-            try:
-                area.send_keys(Keys.CONTROL, "a")
-                area.send_keys(Keys.BACKSPACE)
-            except Exception:
+            field_filled = False
+            for method in methods:
+                textareas = self._get_visible_report_textareas()
+                if len(textareas) < 3:
+                    break
+
+                area = textareas[index]
                 try:
-                    area.clear()
+                    if method == "send_keys":
+                        self._fill_single_textarea_send_keys(area, value)
+                    else:
+                        self._fill_single_textarea_js(area, value)
                 except Exception:
-                    pass
-            area.send_keys(value)
-            try:
-                area.send_keys(Keys.TAB)
-            except Exception:
-                pass
+                    continue
+
+                self._blur_textareas([area])
+                self.sb.sleep(0.5)
+
+                current_textareas = self._get_visible_report_textareas()
+                if len(current_textareas) < 3:
+                    continue
+
+                current_len = self._get_textarea_lengths([current_textareas[index]])[0]
+                final_lengths[index] = current_len
+                self._log(
+                    "MH-FILL-FIELD-LEN",
+                    f"Field index={index} length after {method}: {current_len}",
+                )
+                if current_len >= 100:
+                    field_filled = True
+                    break
+
+            if not field_filled:
+                return final_lengths
+        return final_lengths
 
     def _get_textarea_lengths(self, textareas: list) -> list:
         return self.sb.driver.execute_script(
@@ -747,18 +809,7 @@ class SeleniumBaseDriver(IAutomationDriver):
 
             self.sb.wait_for_element_visible(Sel.TEXTAREA, timeout=10)
             textareas = self.sb.find_elements(Sel.TEXTAREA)
-            visible_textareas = self.sb.driver.execute_script(
-                """
-                const all = Array.from(document.querySelectorAll('textarea'));
-                return all.filter((el) => {
-                    const rect = el.getBoundingClientRect();
-                    const style = window.getComputedStyle(el);
-                    const visible = rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
-                    const inActiveOverlay = !!el.closest('.v-overlay--active, .v-dialog--active, [role="dialog"]');
-                    return visible && inActiveOverlay;
-                });
-                """
-            )
+            visible_textareas = self._get_visible_report_textareas()
 
             if len(visible_textareas) < 3:
                 self._log(
@@ -769,17 +820,11 @@ class SeleniumBaseDriver(IAutomationDriver):
                 return False
 
             field_values = [report.activity, report.learning, report.obstacles]
-            self._fill_textareas_with_send_keys(visible_textareas[:3], field_values)
-            self._blur_textareas(visible_textareas[:3])
-            self.sb.sleep(1)
-            filled_lengths = self._get_textarea_lengths(visible_textareas[:3])
+            filled_lengths = self._fill_report_fields_robust(field_values)
             self._log("MH-FILL-LEN", f"Field lengths after fill: {filled_lengths}")
             if any(length < 100 for length in filled_lengths):
-                self._log("MH-FILL-LEN-RETRY", "Retrying textarea fill via JS fallback")
-                self._fill_textareas_with_js(visible_textareas[:3], field_values)
-                self._blur_textareas(visible_textareas[:3])
-                self.sb.sleep(1)
-                filled_lengths = self._get_textarea_lengths(visible_textareas[:3])
+                self._log("MH-FILL-LEN-RETRY", "Retrying robust field fill once more")
+                filled_lengths = self._fill_report_fields_robust(field_values)
                 self._log("MH-FILL-LEN", f"Field lengths after fallback fill: {filled_lengths}")
                 if any(length < 100 for length in filled_lengths):
                     self._log("MH-FILL-ERR-LEN", f"One or more field lengths are still below 100 chars: {filled_lengths}")
